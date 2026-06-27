@@ -113,9 +113,21 @@ state/<이름>/lastTitle : 중복 방지 기준점
 `scripts/migrate-sheets.js` 가 멤버별 시트 탭(`수집일시, 작성일, 제목, 링크`)을
 읽어 RTDB `/posts/<이름>` 으로 옮기고 `/state/<이름>/lastTitle` 을 최신화합니다.
 
+### 사전 준비 (스프레드시트 ↔ 서비스 계정 연동)
+1. **서비스 계정 키 발급**: Firebase 콘솔 → 프로젝트 설정 → 서비스 계정 →
+   "새 비공개 키 생성"으로 JSON 다운로드. 그 안의 `client_email` 값을 확인.
+2. **스프레드시트 공유**: 대상 시트를 위 `client_email` 주소로 **공유(뷰어)**.
+3. **Google Sheets API 사용 설정**: [Google Cloud 콘솔](https://console.cloud.google.com/apis/library/sheets.googleapis.com)
+   에서 해당(=Firebase) 프로젝트의 Sheets API 를 **사용 설정**.
+4. **GitHub Secret 등록**: 저장소 Settings → Secrets → Actions →
+   `FIREBASE_SERVICE_ACCOUNT` 에 위 JSON 전체 붙여넣기.
+
+### 실행 — 방법 A: GitHub Actions (권장, 키를 로컬에 두지 않음)
+**Actions 탭 → "Migrate Sheets to RTDB (one-off)" → Run workflow**
+(필요 시 `spreadsheet_id` 입력 / 기존 데이터 덮어쓰려면 `force` 체크)
+
+### 실행 — 방법 B: 로컬
 ```bash
-# 1) 대상 스프레드시트를 서비스 계정 이메일(client_email)과 공유(보기 권한)
-# 2) 실행
 cd scripts && npm install
 FIREBASE_SERVICE_ACCOUNT='<서비스계정 JSON>' npm run migrate:sheets
 #   SPREADSHEET_ID 로 시트 변경 가능, FORCE=1 로 기존 데이터 덮어쓰기

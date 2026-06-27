@@ -1,0 +1,42 @@
+name: Migrate Sheets to RTDB (one-off)
+
+# 기존 Google Sheets → Firebase RTDB 일회성 이관.
+# Actions 탭에서 수동 실행(Run workflow)으로만 동작합니다.
+on:
+  workflow_dispatch:
+    inputs:
+      spreadsheet_id:
+        description: "스프레드시트 ID (비우면 기본값 사용)"
+        required: false
+        default: ""
+      force:
+        description: "기존 데이터 덮어쓰기 (FORCE)"
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: migrate-sheets
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        working-directory: scripts
+        run: npm install
+
+      - name: Run migration
+        working-directory: scripts
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          SPREADSHEET_ID: ${{ inputs.spreadsheet_id }}
+          FORCE: ${{ inputs.force && '1' || '' }}
+        run: npm run migrate:sheets
