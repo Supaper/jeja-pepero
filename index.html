@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>제자 페페로 · 큐티 모니터링</title>
+  <link rel="stylesheet" href="./css/style.css" />
+</head>
+<body>
+  <!-- 로딩 중 깜빡임 방지: JS가 세션 확인 후 화면을 결정 -->
+  <div id="app" class="is-loading">
+
+    <!-- ===================== 로그인 화면 ===================== -->
+    <section id="login-view" class="view login-view" hidden>
+      <form id="login-form" class="login-card" autocomplete="on">
+        <h1 class="login-title">🥨 제자 페페로</h1>
+        <p class="login-subtitle">큐티 모니터링 대시보드</p>
+
+        <label class="field">
+          <span class="field-label">이메일</span>
+          <input id="login-id" name="email" type="email" required
+                 placeholder="등록된 이메일을 입력하세요" autocomplete="username" />
+        </label>
+
+        <label class="field">
+          <span class="field-label">비밀번호</span>
+          <input id="login-pw" name="password" type="password" required
+                 placeholder="비밀번호" autocomplete="current-password" />
+        </label>
+
+        <p id="login-error" class="login-error" role="alert" hidden></p>
+
+        <button id="login-submit" type="submit" class="btn btn-primary">로그인</button>
+      </form>
+      <p class="login-foot">접근 권한이 있는 계정만 로그인할 수 있습니다.</p>
+    </section>
+
+    <!-- ===================== 메인 화면 ===================== -->
+    <section id="main-view" class="view main-view" hidden>
+      <header class="topbar">
+        <div class="topbar-brand">🥨 제자 페페로 <span class="topbar-sub">큐티 모니터링</span></div>
+        <div class="topbar-user">
+          <span id="user-name" class="user-name"></span>
+          <button id="logout-btn" type="button" class="btn btn-ghost">로그아웃</button>
+        </div>
+      </header>
+
+      <main class="content">
+        <div class="welcome-card">
+          <h2>환영합니다, <span id="welcome-name"></span>님 👋</h2>
+          <p>로그인에 성공했습니다. 이 화면이 앞으로 큐티 완주 현황 대시보드가 됩니다.</p>
+        </div>
+
+        <section class="dashboard-placeholder">
+          <h3>📊 대시보드 (준비 중)</h3>
+          <p>
+            계획안(<code>PLAN.md</code>)에 따라 멤버별 큐티 완주 현황, 월간 리포트,
+            신규 게시물 피드가 이 영역에 추가될 예정입니다.
+          </p>
+        </section>
+      </main>
+    </section>
+
+  </div>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

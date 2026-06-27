@@ -1,0 +1,18 @@
+{
+  "name": "jeja-pepero-jobs",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "GitHub Actions 스케줄 작업 (일일 수집 / 월간 큐티 리포트)",
+  "scripts": {
+    "collect:daily": "node collect-daily.js",
+    "report:monthly": "node report-monthly.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "nodemailer": "^6.9.14"
+  }
+}

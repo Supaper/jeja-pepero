@@ -1,0 +1,169 @@
+:root {
+  --bg: #f4f6fb;
+  --card: #ffffff;
+  --primary: #1a73e8;
+  --primary-dark: #1558b0;
+  --text: #222a35;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --danger: #d93025;
+  --shadow: 0 10px 30px rgba(20, 40, 80, 0.12);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo",
+    "Malgun Gothic", "맑은 고딕", sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+/* 세션 확인 전에는 두 화면 모두 숨김 (깜빡임 방지) */
+#app.is-loading .view { display: none !important; }
+
+.view { display: block; }
+[hidden] { display: none !important; }
+
+/* ===================== 로그인 ===================== */
+.login-view {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: linear-gradient(160deg, #eef2ff 0%, #f4f6fb 55%, #fef6f0 100%);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--card);
+  border-radius: 18px;
+  padding: 36px 28px 28px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.login-title {
+  margin: 0;
+  text-align: center;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.login-subtitle {
+  margin: -8px 0 8px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field-label { font-size: 13px; font-weight: 600; color: #374151; }
+
+.field input {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 15px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.field input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.15);
+}
+
+.login-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 13px;
+  background: #fce8e6;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.login-foot {
+  margin-top: 16px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* ===================== 버튼 ===================== */
+.btn {
+  cursor: pointer;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 12px 16px;
+  transition: background 0.15s, opacity 0.15s, transform 0.05s;
+}
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: 0.6; cursor: progress; }
+
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--primary-dark); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  padding: 8px 14px;
+  font-size: 14px;
+}
+.btn-ghost:hover { background: #f3f4f6; }
+
+/* ===================== 메인 ===================== */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 22px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.topbar-brand { font-weight: 800; font-size: 18px; }
+.topbar-sub { font-weight: 500; color: var(--muted); font-size: 14px; margin-left: 6px; }
+.topbar-user { display: flex; align-items: center; gap: 12px; }
+.user-name { font-size: 14px; color: #374151; font-weight: 600; }
+
+.content {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 28px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.welcome-card, .dashboard-placeholder {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 24px;
+  box-shadow: 0 2px 8px rgba(20, 40, 80, 0.04);
+}
+.welcome-card h2 { margin: 0 0 8px; font-size: 20px; }
+.welcome-card p { margin: 0; color: var(--muted); }
+
+.dashboard-placeholder h3 { margin: 0 0 10px; font-size: 16px; }
+.dashboard-placeholder p { margin: 0; color: var(--muted); line-height: 1.6; }
+.dashboard-placeholder code {
+  background: #f3f4f6;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 13px;
+}
