@@ -1,0 +1,4 @@
+# 수집기 런타임 의존성
+requests>=2.31          # 게시판 HTTP 조회
+PyYAML>=6.0             # 설정 로드
+firebase-admin>=6.5     # RTDB 기록 (Admin SDK)

@@ -12,6 +12,10 @@ firebase-admin*.json
 *token*.json
 secrets/
 
+# 실제 운영 설정(실명 명단 등 개인정보 포함 가능) — config.example.yaml 만 커밋
+config/config.yaml
+config/*.local.yaml
+
 # Firebase CLI 캐시/로그
 .firebase/
 firebase-debug.log

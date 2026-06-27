@@ -28,7 +28,9 @@
 
 ## 현재 상태 (중요)
 
-- **Phase 0 (문서화·설계).** 아직 애플리케이션 코드는 없다. README/PRD/CLAUDE.md만 존재한다.
+- **Phase 1 진행 중.** 수집기(`collector/`)와 웹 프론트(`web/`)·RTDB 규칙 골격이 있다.
+  - 구현됨: 게시판 수집(thelifechurch www56)·카테고리 분류·집합 기반 dedupe·RTDB 기록·콘솔 알림·웹 로그인 게이트.
+  - 미구현: **카카오 알림(notifier 교체)**, 월별 통계(reporter), hwpx 문서(doc).
 - 기존 구현은 Google Apps Script 함수 2개(`monitorDailyCollectionOnly`, `sendMonthlyQTReport`)이며,
   이를 **참조 사양(reference behavior)** 으로 삼는다. PRD §4(현행 동작 분석)에 정리돼 있다.
 - 코드를 새로 작성할 때는 PRD §8(아키텍처)·§9(로드맵)를 따르고, 임의로 범위를 키우지 말 것.
@@ -57,27 +59,43 @@
 8. **보안 경계는 서버 규칙.** 웹 접근 제한은 **RTDB 보안 규칙(허용목록)** 으로 강제한다.
    클라이언트 redirect/숨김은 보조 UX일 뿐이며 단독으로 신뢰하지 않는다.
 
-## 권장 스택 / 구조 (제안 — 코드 작성 시 합의 후 확정)
+## 스택 / 구조 (확정)
 
-권장: **Python** (HTML 파싱·HWPX(zip/XML) 조작·스케줄링에 유리).
+스택: **Python**. 수집기는 `collector/` 패키지로 구현돼 있다.
 
 ```
-adapters/      게시판별 fetch+parse (1차: thelifechurch www56)
-categorizer/   규칙 기반 분류
-store/         RTDB (Admin SDK로 기록, 인터페이스 추상화)
-notifier/      알림 채널 추상화 (1차: KakaoMemoNotifier "나에게 보내기")
-reporter/      월별 통계 (카카오 요약 + CSV/표 산출물)
+collector/
+  adapters/    게시판별 fetch+parse (1차: thelifechurch.py www56)
+  categorizer.py  규칙 기반 분류(설정)
+  store/       RTDB(Admin SDK) + MemoryStore(테스트/드라이런), Store 인터페이스
+  notifier/    알림 채널 추상화 (현재 ConsoleNotifier, KakaoMemoNotifier는 추후)
+  config.py    YAML 설정 로더
+  models.py    Post 모델 + post_key(dedupe)
+  main.py      배치 진입점 (python -m collector.main)
+config/        config.example.yaml (실 설정 config.yaml 은 .gitignore)
 web/           정적 프론트(로그인 게이트 + 대시보드) + database.rules.json
-doc/           hwpx 문서 생성 (Phase 3, 후순위)
-config/        yaml 설정 + .env 시크릿(카카오 토큰, Firebase 서비스계정 키 등)
+tests/         pytest (네트워크 없이 parse/분류/run 검증)
+database.rules.json  RTDB 보안 규칙(허용목록)
+reporter/, doc/  월별 통계·hwpx 문서 생성 (추후)
 ```
 
-> 실제 디렉터리 구조는 첫 코드 작성 시 확정한다. 새 게시판은 `adapters/`에 어댑터를 추가하는 식으로 확장한다.
+> 새 게시판은 `collector/adapters/`에 어댑터를 추가하고 `main.ADAPTERS`에 등록한다.
 
 ## 빌드 / 테스트 / 실행
 
-아직 코드/툴체인이 없다. 코드 도입 시 이 절에 실제 명령(설치·테스트·린트·실행)을 채워 넣을 것.
+```bash
+pip install -r requirements.txt          # 런타임(requests, PyYAML, firebase-admin)
+pip install -r requirements-dev.txt       # + pytest
+pytest -q                                 # 테스트 (네트워크/Firebase 불필요)
+
+cp config/config.example.yaml config/config.yaml   # 실 설정 작성(명단 등)
+export FIREBASE_CREDENTIALS=/path/to/serviceAccount.json
+python -m collector.main --dry-run        # 저장 없이 콘솔 출력만 (RTDB 불필요)
+python -m collector.main                  # RTDB 기록
+```
+
 테스트 없이 동작을 바꾸지 말고, 새 기능에는 테스트를 함께 추가한다.
+런타임 의존성(requests/firebase-admin)은 지연 import 되어 있어 테스트는 pytest+PyYAML만으로 돈다.
 
 ## Git / 기여
 

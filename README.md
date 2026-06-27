@@ -19,20 +19,35 @@
 
 ## 현재 상태
 
-> **Phase 0 — 문서화 / 설계 단계.** 아직 애플리케이션 코드는 없습니다.
-> 기존 Apps Script 동작을 기준으로 요구사항과 아키텍처를 정의하는 중입니다.
+> **Phase 1 진행 중.** 수집기(`collector/`)·웹 프론트(`web/`)·RTDB 규칙 골격이 동작합니다.
+> 카카오 알림·월별 통계·hwpx 문서는 아직입니다.
 
 | 단계 | 범위 | 상태 |
 |------|------|------|
-| Phase 0 | 문서화·설계 (PRD/README/CLAUDE.md) | 진행 중 |
-| Phase 1 | MVP: 수집→RTDB→일별 카카오 알림 + 웹 로그인 게이트 | 예정 |
+| Phase 0 | 문서화·설계 (PRD/README/CLAUDE.md) | ✅ 완료 |
+| Phase 1 | MVP: 수집→RTDB→알림 + 웹 로그인 게이트 | 🚧 진행 중 (수집/웹 ✅, 카카오 알림 예정) |
 | Phase 2 | 월별 통계, 대시보드 UI 보강, 설정 외부화, 다중 그룹 | 예정 |
 | Phase 3 | 한글(.hwpx) 문서 자동 생성 (양식 제공 후, 후순위) | 예정 |
+
+## 빠른 시작 (수집기)
+
+```bash
+pip install -r requirements.txt
+pytest -q                                              # 테스트
+
+cp config/config.example.yaml config/config.yaml       # 명단·규칙 작성 (config.yaml은 커밋 안 됨)
+python -m collector.main --dry-run                     # 저장 없이 콘솔 출력만
+export FIREBASE_CREDENTIALS=/path/to/serviceAccount.json
+python -m collector.main                               # RTDB 기록
+```
+
+웹 대시보드 설정·배포는 [`web/README.md`](web/README.md) 참고.
 
 ## 문서
 
 - [`docs/PRD.md`](docs/PRD.md) — 제품 요구사항 정의서 (배경/기능/데이터모델/로드맵)
 - [`CLAUDE.md`](CLAUDE.md) — Claude / 기여자를 위한 작업 가이드
+- [`web/README.md`](web/README.md) — 웹 대시보드 구성·배포
 
 ## 배경 (기존 운영 방식)
 
