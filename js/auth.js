@@ -1,54 +1,35 @@
-// Realtime Database 의 /users 노드를 기준으로 로그인을 검증합니다.
+// 로그인 = Firebase Authentication(이메일/비밀번호)으로 인증한 뒤,
+// 그 이메일이 Realtime Database 의 /users 허용 명단에 있는지 확인합니다.
 //
-// ⚠️ 보안 안내
-//   이 방식은 클라이언트가 /users 노드를 직접 읽어 비밀번호를 비교합니다.
-//   소규모 그룹 운영에는 충분하지만, 비밀번호가 평문으로 노출될 수 있으므로
-//   장기적으로는 Firebase Authentication(이메일/비밀번호) 전환을 권장합니다.
-//   또한 /users 노드의 read 권한은 보안 규칙으로 최소화해야 합니다. (README 참고)
+// /users 구조 (allowlist, 비밀번호 없음):
+//   users/<key>: { email: "...", name: "...", admin: true|false }
+//   예) users/admin001: { admin: true, email: "tnwhd0713@gmail.com", name: "한수종" }
 //
-// 지원하는 /users 데이터 형태 (필드명은 아래 후보 중 자동 인식):
-//   1) users/<key>: { email|id|username: "...", password|pw: "...", name?: "..." }
-//   2) users/<아이디>: "<비밀번호>"   (키가 곧 아이디, 값이 비밀번호)
-//   3) 위 형태들의 배열
+// 비밀번호는 Firebase Authentication이 관리합니다.
+//   → 콘솔에서 Email/Password 공급자 활성화 + 해당 이메일 사용자 추가 필요. (README 참고)
 
-import { db } from "./firebase-config.js";
+import { auth, db } from "./firebase-config.js";
+import {
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { ref, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
-const SESSION_KEY = "jeja_pepero_session";
-
-// 필드명이 프로젝트마다 다를 수 있어 후보를 폭넓게 인식
-const ID_FIELDS = ["email", "id", "username", "userId", "userid", "loginId"];
-const PW_FIELDS = ["password", "pw", "pwd", "pass"];
-const NAME_FIELDS = ["name", "displayName", "이름", "nickname"];
-
-function pick(obj, fields) {
-  for (const f of fields) {
-    if (obj && obj[f] != null && obj[f] !== "") return String(obj[f]);
-  }
-  return null;
-}
-
-function normId(v) {
+function normEmail(v) {
   return String(v ?? "").trim().toLowerCase();
 }
 
 /**
- * /users 노드에서 아이디/비밀번호가 일치하는 사용자를 찾습니다.
- * @returns {Promise<{key:string,id:string,name:string,profile:object}>}
- * @throws  로그인 실패 시 사용자 메시지를 담은 Error
+ * 인증된 이메일이 /users 허용 명단에 있는지 조회.
+ * @returns {Promise<{key:string,email:string,name:string,admin:boolean}|null>}
  */
-export async function login(idInput, pwInput) {
-  const id = normId(idInput);
-  const pw = String(pwInput ?? "");
+export async function findAllowedUser(email) {
+  const target = normEmail(email);
+  if (!target) return null;
 
-  let snap;
-  try {
-    snap = await get(ref(db, "users"));
-  } catch (e) {
-    throw new Error("서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.");
-  }
-
-  if (!snap.exists()) throw new Error("등록된 사용자가 없습니다.");
+  const snap = await get(ref(db, "users"));
+  if (!snap.exists()) return null;
 
   const users = snap.val();
   const entries = Array.isArray(users)
@@ -56,46 +37,83 @@ export async function login(idInput, pwInput) {
     : Object.entries(users);
 
   for (const [key, val] of entries) {
-    if (val == null) continue;
-
-    let candidateIds, candidatePw, profile;
-    if (typeof val === "object") {
-      profile = val;
-      candidatePw = pick(val, PW_FIELDS);
-      candidateIds = [pick(val, ID_FIELDS), key].filter(Boolean).map(normId);
-    } else {
-      // 값 자체가 비밀번호, 키가 아이디인 형태
-      profile = { id: key };
-      candidatePw = String(val);
-      candidateIds = [normId(key)];
-    }
-
-    const idMatch = candidateIds.includes(id);
-    const pwMatch = candidatePw != null && candidatePw === pw;
-
-    if (idMatch && pwMatch) {
-      const name = pick(profile, NAME_FIELDS) || pick(profile, ID_FIELDS) || key;
-      const session = { key, id: candidateIds[0], name, profile };
-      saveSession(session);
-      return session;
+    if (val == null || typeof val !== "object") continue;
+    if (normEmail(val.email) === target) {
+      return {
+        key,
+        email: target,
+        name: val.name || val.email || key,
+        admin: val.admin === true,
+      };
     }
   }
-
-  throw new Error("아이디 또는 비밀번호가 올바르지 않습니다.");
+  return null;
 }
 
-export function saveSession(session) {
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
-}
-
-export function getSession() {
+/**
+ * 이메일/비밀번호로 로그인하고 허용 명단까지 검증.
+ * 명단에 없으면 즉시 로그아웃시키고 오류를 던집니다.
+ */
+export async function signIn(email, password) {
+  let cred;
   try {
-    return JSON.parse(sessionStorage.getItem(SESSION_KEY));
-  } catch (_) {
-    return null;
+    cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+  } catch (e) {
+    throw new Error(mapAuthError(e));
   }
+
+  const profile = await findAllowedUser(cred.user.email);
+  if (!profile) {
+    await signOut(auth);
+    throw new Error("접근 권한이 없는 계정입니다. 관리자에게 문의하세요.");
+  }
+  return profile;
 }
 
-export function logout() {
-  sessionStorage.removeItem(SESSION_KEY);
+export async function signOutUser() {
+  await signOut(auth);
+}
+
+/**
+ * 인증 상태를 구독. 로그인 + 허용 명단 통과 시 profile, 아니면 null 을 콜백으로 전달.
+ * 명단에 없는 인증 사용자는 자동 로그아웃됩니다.
+ */
+export function watchAuth(callback) {
+  return onAuthStateChanged(auth, async (user) => {
+    if (!user) {
+      callback(null);
+      return;
+    }
+    try {
+      const profile = await findAllowedUser(user.email);
+      if (profile) {
+        callback(profile);
+      } else {
+        await signOut(auth);
+        callback(null);
+      }
+    } catch (_) {
+      callback(null);
+    }
+  });
+}
+
+function mapAuthError(e) {
+  const code = e && e.code ? e.code : "";
+  switch (code) {
+    case "auth/invalid-email":
+      return "이메일 형식이 올바르지 않습니다.";
+    case "auth/user-disabled":
+      return "비활성화된 계정입니다.";
+    case "auth/user-not-found":
+    case "auth/wrong-password":
+    case "auth/invalid-credential":
+      return "이메일 또는 비밀번호가 올바르지 않습니다.";
+    case "auth/too-many-requests":
+      return "시도가 너무 많습니다. 잠시 후 다시 시도해주세요.";
+    case "auth/network-request-failed":
+      return "네트워크 오류입니다. 연결을 확인해주세요.";
+    default:
+      return "로그인에 실패했습니다. 다시 시도해주세요.";
+  }
 }

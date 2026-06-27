@@ -1,7 +1,8 @@
 // Firebase 초기화 (브라우저 ESM / CDN)
 // apiKey 등 웹 설정값은 클라이언트에 공개되도록 설계된 값입니다.
-// 실제 접근 제어는 Firebase 보안 규칙으로 거는 것이 원칙입니다. (README 참고)
+// 실제 접근 제어는 Firebase Authentication + 보안 규칙으로 겁니다. (README 참고)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getDatabase } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 const firebaseConfig = {
@@ -16,9 +17,10 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
 const db = getDatabase(app);
 
-// Analytics는 선택 사항이며, 일부 환경(localhost/비HTTPS)에서 실패할 수 있어 로그인 흐름과 분리합니다.
+// Analytics는 선택 사항이며, 일부 환경(localhost/비HTTPS)에서 실패할 수 있어 분리합니다.
 (async () => {
   try {
     const { getAnalytics, isSupported } = await import(
@@ -30,4 +32,4 @@ const db = getDatabase(app);
   }
 })();
 
-export { app, db };
+export { app, auth, db };
