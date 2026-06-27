@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>jeja-pepero · 게시판 모니터링</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <!-- 로딩 -->
+  <div id="loading" class="center">불러오는 중…</div>
+
+  <!-- 로그인 게이트 -->
+  <section id="login-view" class="center" hidden>
+    <h1>📋 게시판 모니터링</h1>
+    <p class="muted">허용된 계정만 열람할 수 있습니다.</p>
+    <button id="login-btn" class="btn">Google 계정으로 로그인</button>
+    <p id="login-error" class="error" hidden></p>
+  </section>
+
+  <!-- 권한 없음 -->
+  <section id="denied-view" class="center" hidden>
+    <h1>🔒 접근 권한 없음</h1>
+    <p class="muted">이 계정(<span id="denied-email"></span>)은 허용 목록에 없습니다.<br />운영자에게 등록을 요청하세요.</p>
+    <button id="denied-logout-btn" class="btn ghost">다른 계정으로 로그인</button>
+  </section>
+
+  <!-- 대시보드 -->
+  <main id="app-view" hidden>
+    <header class="topbar">
+      <strong>📋 게시판 모니터링</strong>
+      <span class="spacer"></span>
+      <span id="user-email" class="muted"></span>
+      <button id="logout-btn" class="btn ghost small">로그아웃</button>
+    </header>
+
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="작성자·제목 검색…" />
+      <select id="category-filter"><option value="">전체 카테고리</option></select>
+      <span class="spacer"></span>
+      <span id="count" class="muted"></span>
+    </div>
+
+    <div id="posts"></div>
+    <p id="empty" class="center muted" hidden>표시할 글이 없습니다.</p>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

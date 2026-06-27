@@ -1,0 +1,30 @@
+# 시크릿 — 절대 커밋 금지
+.env
+.env.*
+*.local
+
+# Firebase 서비스계정 키 (Admin SDK) — 수집기용, 비밀
+serviceAccount*.json
+*-firebase-adminsdk-*.json
+firebase-admin*.json
+
+# 카카오 토큰 등
+*token*.json
+secrets/
+
+# Firebase CLI 캐시/로그
+.firebase/
+firebase-debug.log
+*.log
+
+# Python (수집기, 추후)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# OS / 에디터
+.DS_Store
+.idea/
+.vscode/
