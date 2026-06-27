@@ -123,6 +123,20 @@ html, body {
 }
 .btn-ghost:hover { background: #f3f4f6; }
 
+.btn-google {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  background: #fff;
+  color: #3c4043;
+  border: 1px solid #dadce0;
+  font-weight: 600;
+}
+.btn-google:hover:not(:disabled) { background: #f7f8fa; box-shadow: 0 1px 3px rgba(60,64,67,.15); }
+.g-icon { width: 18px; height: 18px; }
+
 /* ===================== 메인 ===================== */
 .topbar {
   display: flex;
@@ -149,21 +163,67 @@ html, body {
   gap: 20px;
 }
 
-.welcome-card, .dashboard-placeholder {
+.card {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 24px;
+  padding: 20px 22px;
   box-shadow: 0 2px 8px rgba(20, 40, 80, 0.04);
 }
-.welcome-card h2 { margin: 0 0 8px; font-size: 20px; }
-.welcome-card p { margin: 0; color: var(--muted); }
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.card-head h2 { margin: 0; font-size: 17px; }
+.card-meta { color: var(--muted); font-size: 13px; }
+.muted { color: var(--muted); font-size: 14px; margin: 0; }
 
-.dashboard-placeholder h3 { margin: 0 0 10px; font-size: 16px; }
-.dashboard-placeholder p { margin: 0; color: var(--muted); line-height: 1.6; }
-.dashboard-placeholder code {
-  background: #f3f4f6;
-  padding: 2px 6px;
-  border-radius: 5px;
-  font-size: 13px;
+/* ---- 큐티 완주 표 ---- */
+.table-wrap { overflow-x: auto; }
+.qt-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.qt-table th, .qt-table td { padding: 9px 10px; text-align: center; }
+.qt-table thead th {
+  background: #f6f8fc;
+  color: #4b5563;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+.qt-table tbody tr { border-bottom: 1px solid #f1f3f7; }
+.qt-table tbody tr:hover { background: #fafbfe; }
+.qt-table .rank { color: var(--muted); width: 44px; }
+.qt-table .name { font-weight: 600; }
+.qt-table .bar-cell { width: 28%; min-width: 110px; }
+.bar { background: #eef1f6; border-radius: 6px; height: 8px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 6px; transition: width .3s; }
+
+/* ---- 최근 글 피드 ---- */
+.feed { list-style: none; margin: 0; padding: 0; }
+.feed li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 2px;
+  border-bottom: 1px solid #f1f3f7;
+  font-size: 14px;
+}
+.feed li:last-child { border-bottom: none; }
+.feed-date { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.feed-name {
+  background: #eef2ff;
+  color: #3548b5;
+  border-radius: 6px;
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.feed-title { color: #1a3a8a; text-decoration: none; }
+.feed-title:hover { text-decoration: underline; }
+
+@media (max-width: 540px) {
+  .feed li { flex-wrap: wrap; gap: 6px; }
+  .qt-table .bar-cell { display: none; }
 }

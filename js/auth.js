@@ -1,20 +1,25 @@
-// 로그인 = Firebase Authentication(이메일/비밀번호)으로 인증한 뒤,
-// 그 이메일이 Realtime Database 의 /users 허용 명단에 있는지 확인합니다.
+// 로그인 = Google 계정으로 인증(Firebase Authentication) 후,
+// 그 이메일이 Realtime Database 의 /users 허용 명단에 있는지만 확인합니다.
+// 비밀번호는 Google이 관리하므로 우리가 저장/검증하지 않습니다.
 //
-// /users 구조 (allowlist, 비밀번호 없음):
+// /users 구조 (allowlist):
 //   users/<key>: { email: "...", name: "...", admin: true|false }
 //   예) users/admin001: { admin: true, email: "tnwhd0713@gmail.com", name: "한수종" }
 //
-// 비밀번호는 Firebase Authentication이 관리합니다.
-//   → 콘솔에서 Email/Password 공급자 활성화 + 해당 이메일 사용자 추가 필요. (README 참고)
+// 콘솔 설정: Authentication → Google 공급자 활성화,
+//           Authentication → Settings → 승인된 도메인에 배포 도메인 추가. (README 참고)
 
 import { auth, db } from "./firebase-config.js";
 import {
-  signInWithEmailAndPassword,
+  GoogleAuthProvider,
+  signInWithPopup,
   signOut,
   onAuthStateChanged,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { ref, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+const provider = new GoogleAuthProvider();
+provider.setCustomParameters({ prompt: "select_account" });
 
 function normEmail(v) {
   return String(v ?? "").trim().toLowerCase();
@@ -51,13 +56,13 @@ export async function findAllowedUser(email) {
 }
 
 /**
- * 이메일/비밀번호로 로그인하고 허용 명단까지 검증.
+ * Google 팝업으로 로그인하고 허용 명단까지 검증.
  * 명단에 없으면 즉시 로그아웃시키고 오류를 던집니다.
  */
-export async function signIn(email, password) {
+export async function signInWithGoogle() {
   let cred;
   try {
-    cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+    cred = await signInWithPopup(auth, provider);
   } catch (e) {
     throw new Error(mapAuthError(e));
   }
@@ -65,7 +70,9 @@ export async function signIn(email, password) {
   const profile = await findAllowedUser(cred.user.email);
   if (!profile) {
     await signOut(auth);
-    throw new Error("접근 권한이 없는 계정입니다. 관리자에게 문의하세요.");
+    throw new Error(
+      `접근 권한이 없는 계정입니다 (${cred.user.email}). 관리자에게 문의하세요.`
+    );
   }
   return profile;
 }
@@ -101,16 +108,13 @@ export function watchAuth(callback) {
 function mapAuthError(e) {
   const code = e && e.code ? e.code : "";
   switch (code) {
-    case "auth/invalid-email":
-      return "이메일 형식이 올바르지 않습니다.";
-    case "auth/user-disabled":
-      return "비활성화된 계정입니다.";
-    case "auth/user-not-found":
-    case "auth/wrong-password":
-    case "auth/invalid-credential":
-      return "이메일 또는 비밀번호가 올바르지 않습니다.";
-    case "auth/too-many-requests":
-      return "시도가 너무 많습니다. 잠시 후 다시 시도해주세요.";
+    case "auth/popup-closed-by-user":
+    case "auth/cancelled-popup-request":
+      return "로그인 창이 닫혔습니다. 다시 시도해주세요.";
+    case "auth/popup-blocked":
+      return "팝업이 차단되었습니다. 브라우저 팝업 차단을 해제해주세요.";
+    case "auth/unauthorized-domain":
+      return "이 도메인은 Firebase 승인된 도메인에 등록되어 있지 않습니다.";
     case "auth/network-request-failed":
       return "네트워크 오류입니다. 연결을 확인해주세요.";
     default:
