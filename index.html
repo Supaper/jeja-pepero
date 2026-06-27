@@ -12,26 +12,22 @@
 
     <!-- ===================== 로그인 화면 ===================== -->
     <section id="login-view" class="view login-view" hidden>
-      <form id="login-form" class="login-card" autocomplete="on">
+      <div class="login-card">
         <h1 class="login-title">🥨 제자 페페로</h1>
         <p class="login-subtitle">큐티 모니터링 대시보드</p>
 
-        <label class="field">
-          <span class="field-label">이메일</span>
-          <input id="login-id" name="email" type="email" required
-                 placeholder="등록된 이메일을 입력하세요" autocomplete="username" />
-        </label>
-
-        <label class="field">
-          <span class="field-label">비밀번호</span>
-          <input id="login-pw" name="password" type="password" required
-                 placeholder="비밀번호" autocomplete="current-password" />
-        </label>
+        <button id="google-login" type="button" class="btn btn-google">
+          <svg class="g-icon" viewBox="0 0 18 18" aria-hidden="true">
+            <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/>
+            <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/>
+            <path fill="#FBBC05" d="M3.97 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z"/>
+            <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58A9 9 0 0 0 9 0 9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/>
+          </svg>
+          Google 계정으로 로그인
+        </button>
 
         <p id="login-error" class="login-error" role="alert" hidden></p>
-
-        <button id="login-submit" type="submit" class="btn btn-primary">로그인</button>
-      </form>
+      </div>
       <p class="login-foot">접근 권한이 있는 계정만 로그인할 수 있습니다.</p>
     </section>
 
@@ -46,17 +42,26 @@
       </header>
 
       <main class="content">
-        <div class="welcome-card">
-          <h2>환영합니다, <span id="welcome-name"></span>님 👋</h2>
-          <p>로그인에 성공했습니다. 이 화면이 앞으로 큐티 완주 현황 대시보드가 됩니다.</p>
-        </div>
+        <!-- 이번 달 큐티 완주 현황 -->
+        <section class="card">
+          <div class="card-head">
+            <h2 id="qt-title">📊 이번 달 큐티 완주 현황</h2>
+            <span id="qt-meta" class="card-meta"></span>
+          </div>
+          <div id="qt-table-wrap" class="table-wrap">
+            <p class="muted" id="qt-loading">불러오는 중…</p>
+          </div>
+        </section>
 
-        <section class="dashboard-placeholder">
-          <h3>📊 대시보드 (준비 중)</h3>
-          <p>
-            계획안(<code>PLAN.md</code>)에 따라 멤버별 큐티 완주 현황, 월간 리포트,
-            신규 게시물 피드가 이 영역에 추가될 예정입니다.
-          </p>
+        <!-- 최근 수집된 글 -->
+        <section class="card">
+          <div class="card-head">
+            <h2>🆕 최근 수집된 글</h2>
+            <span class="card-meta">최근 20건</span>
+          </div>
+          <div id="feed-wrap">
+            <p class="muted" id="feed-loading">불러오는 중…</p>
+          </div>
         </section>
       </main>
     </section>
