@@ -1,19 +1,22 @@
-// 정적 프론트 — 로그인 게이트 + 대시보드.
+// 정적 프론트 — 로그인 게이트 + 대시보드 (Realtime Database 기준).
 //
-// 접근 제어의 실질 강제는 firestore.rules(허용목록)이다. 아래 클라이언트 로직은
-// UX(권한 없으면 화면 차단)일 뿐이며, 데이터는 로그인 후 Firestore에서 로드한다.
+// 접근 제어의 실질 강제는 database.rules.json(허용목록)이다. 아래 클라이언트 로직은
+// UX(권한 없으면 화면 차단)일 뿐이며, 데이터는 로그인 후 RTDB에서 로드한다.
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, doc, getDoc, collection, query, orderBy, getDocs,
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  getDatabase, ref, get, query, orderByChild,
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 import { firebaseConfig } from "./firebase-config.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = getFirestore(app);
+const db = getDatabase(app);
+
+// RTDB 키에는 '.'을 쓸 수 없으므로 이메일의 '.'을 ','로 인코딩한다.
+const emailKey = (email) => email.replace(/\./g, ",");
 
 // --- 화면 전환 헬퍼 ---
 const views = ["loading", "login-view", "denied-view", "app-view"];
@@ -39,11 +42,11 @@ onAuthStateChanged(auth, async (user) => {
   if (!user) { show("login-view"); return; }
   show("loading");
 
-  // 허용목록 확인: users/{이메일} 문서를 읽어본다.
-  // (보안 규칙은 본인 이메일 문서 read만 허용 → 존재하면 허용된 사용자)
+  // 허용목록 확인: users/{이메일키} 노드를 읽어본다.
+  // (보안 규칙은 본인 이메일 키 노드 read만 허용 → 존재하면 허용된 사용자)
   let allowed = false;
   try {
-    const snap = await getDoc(doc(db, "users", user.email));
+    const snap = await get(ref(db, "users/" + emailKey(user.email)));
     allowed = snap.exists();
   } catch (_) {
     allowed = false; // 규칙에 막히면 미허용으로 간주
@@ -65,9 +68,10 @@ let allPosts = [];
 
 async function loadPosts() {
   try {
-    const q = query(collection(db, "posts"), orderBy("posted_date", "desc"));
-    const snap = await getDocs(q);
-    allPosts = snap.docs.map((d) => d.data());
+    const snap = await get(query(ref(db, "posts"), orderByChild("posted_date")));
+    const arr = [];
+    snap.forEach((child) => { arr.push(child.val()); });
+    allPosts = arr.reverse(); // posted_date 오름차순 → 최신순으로 뒤집기
   } catch (e) {
     allPosts = [];
     console.error("posts 로드 실패:", e);

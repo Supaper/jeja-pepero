@@ -5,7 +5,7 @@
 받고, 결과는 **웹 대시보드**(구글 로그인 + 허용목록)로 열람하며, 장기적으로는 취합 결과를
 **한글(.hwpx) 양식 문서**로 자동 생성하는 것을 목표로 합니다.
 
-현재는 Google Sheets + Apps Script + Gmail 로 운영 중인 워크플로를, **Firebase(Firestore + Auth)** 와
+현재는 Google Sheets + Apps Script + Gmail 로 운영 중인 워크플로를, **Firebase(Realtime Database + Auth)** 와
 정적 웹 프론트 기반의 독립 프로그램으로 재구축하는 프로젝트입니다.
 
 ## 무엇을 하나요
@@ -25,7 +25,7 @@
 | 단계 | 범위 | 상태 |
 |------|------|------|
 | Phase 0 | 문서화·설계 (PRD/README/CLAUDE.md) | 진행 중 |
-| Phase 1 | MVP: 수집→Firestore→일별 카카오 알림 + 웹 로그인 게이트 | 예정 |
+| Phase 1 | MVP: 수집→RTDB→일별 카카오 알림 + 웹 로그인 게이트 | 예정 |
 | Phase 2 | 월별 통계, 대시보드 UI 보강, 설정 외부화, 다중 그룹 | 예정 |
 | Phase 3 | 한글(.hwpx) 문서 자동 생성 (양식 제공 후, 후순위) | 예정 |
 
@@ -48,12 +48,12 @@
 ## 주요 결정 (확정)
 
 - **수집기**: Python 배치 + cron (자체 호스팅 또는 GitHub Actions)
-- **저장소**: **Firebase Firestore** (수집기는 Admin SDK로 기록)
+- **저장소**: **Firebase Realtime Database** (수집기는 Admin SDK로 기록)
 - **웹 열람**: 정적 프론트(GitHub Pages) + **Firebase Auth(구글)** + **`users` 허용목록**
 - **알림**: **카카오톡 "나에게 보내기"**(memo API) — 운영자 본인 1명 수신
 - **문서**: **`.hwpx`** (양식 템플릿 확보 후 착수, 후순위)
 
-> ⚠️ 공개 URL이어도 비공개를 보장하는 핵심은 **Firestore 보안 규칙(허용목록)** 입니다.
+> ⚠️ 공개 URL이어도 비공개를 보장하는 핵심은 **RTDB 보안 규칙(허용목록)** 입니다.
 > 화면의 로그인 redirect는 UX 보조일 뿐 보안 경계가 아니며, 규칙은 1일차에 적용합니다.
 
 자세한 배경·남은 질문은 [`docs/PRD.md`](docs/PRD.md) §2.3, §12 참고.

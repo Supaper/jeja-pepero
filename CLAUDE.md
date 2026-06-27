@@ -14,14 +14,15 @@
 ## 확정된 결정 (반드시 준수)
 
 - **수집기 배포**: cron(자체 호스팅 또는 GitHub Actions). 시크릿·데이터는 레포/아티팩트에 커밋 금지.
-- **저장소**: **Firebase Firestore**. 웹 열람·구글 인증·접근제어를 함께 얻기 위해 채택.
+- **저장소**: **Firebase Realtime Database(RTDB)**. 웹 열람·구글 인증·접근제어를 함께 얻기 위해 채택.
   `store` 인터페이스로 추상화(추후 교체 대비). 수집기는 **Admin SDK**로 기록.
+  (RTDB 키엔 `.` 불가 → 이메일은 `.`을 `,`로 인코딩해 `users` 키로 사용)
 - **웹 열람**: 정적 프론트(GitHub Pages) + **Firebase Auth(구글)** + **`users` 허용목록**.
-  공개 URL이어도 데이터는 번들에 없고 로그인 후 Firestore에서 로드.
+  공개 URL이어도 데이터는 번들에 없고 로그인 후 RTDB에서 로드.
 - **알림**: **카카오톡 "나에게 보내기"(memo API)**, 운영자 본인 1명. `notifier`는 채널 추상화로 둔다.
 - **문서**: **`.hwpx`** 만 대상(.hwp 직접 생성 비목표). 양식 템플릿 확보 후 착수하는 **후순위(Phase 3)**.
 
-> ⚠️ **보안 경계는 Firestore 보안 규칙**이다. "미등록 시 로그인 redirect"는 클라이언트 UX일 뿐
+> ⚠️ **보안 경계는 RTDB 보안 규칙**이다. "미등록 시 로그인 redirect"는 클라이언트 UX일 뿐
 > 우회 가능하다. 허용목록(`users`) 기반 규칙을 **1일차에** 적용하고, 규칙 없이 데이터를 올리지 않는다.
 > 상세·근거는 PRD §2.3(Decisions)·§12 참조.
 
@@ -53,7 +54,7 @@
 6. **개인정보 최소화.** 공개 게시 정보(작성자명·제목·링크)만 다룬다.
 7. **데이터·시크릿 커밋 금지.** Firebase 서비스계정 키·카카오 토큰·`.env`는 `.gitignore`로 차단하고
    레포/아티팩트에 절대 커밋하지 않는다.
-8. **보안 경계는 서버 규칙.** 웹 접근 제한은 **Firestore 보안 규칙(허용목록)** 으로 강제한다.
+8. **보안 경계는 서버 규칙.** 웹 접근 제한은 **RTDB 보안 규칙(허용목록)** 으로 강제한다.
    클라이언트 redirect/숨김은 보조 UX일 뿐이며 단독으로 신뢰하지 않는다.
 
 ## 권장 스택 / 구조 (제안 — 코드 작성 시 합의 후 확정)
@@ -63,10 +64,10 @@
 ```
 adapters/      게시판별 fetch+parse (1차: thelifechurch www56)
 categorizer/   규칙 기반 분류
-store/         Firestore (Admin SDK로 기록, 인터페이스 추상화)
+store/         RTDB (Admin SDK로 기록, 인터페이스 추상화)
 notifier/      알림 채널 추상화 (1차: KakaoMemoNotifier "나에게 보내기")
 reporter/      월별 통계 (카카오 요약 + CSV/표 산출물)
-web/           정적 프론트(로그인 게이트 + 대시보드) + firestore.rules
+web/           정적 프론트(로그인 게이트 + 대시보드) + database.rules.json
 doc/           hwpx 문서 생성 (Phase 3, 후순위)
 config/        yaml 설정 + .env 시크릿(카카오 토큰, Firebase 서비스계정 키 등)
 ```

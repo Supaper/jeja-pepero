@@ -1,0 +1,24 @@
+{
+  // 접근 경계 = 이 규칙. 클라이언트의 로그인 redirect는 UX 보조일 뿐이다.
+  // - users/{이메일키} 가 존재하는 계정만 데이터 read 허용(허용목록).
+  // - RTDB 키엔 '.'을 못 쓰므로 이메일의 '.'은 ','로 인코딩한다 (me@x.com -> me@x,com).
+  // - 모든 클라이언트 write 금지. 수집기는 Admin SDK로 우회해 기록한다.
+  // - users 허용목록은 운영자가 콘솔/Admin SDK로만 관리한다.
+  "rules": {
+    "users": {
+      "$emailKey": {
+        ".read": "auth != null && auth.token.email.replace('.', ',') === $emailKey",
+        ".write": false
+      }
+    },
+    "posts": {
+      ".read": "auth != null && root.child('users').child(auth.token.email.replace('.', ',')).exists()",
+      ".write": false,
+      ".indexOn": ["posted_date"]
+    },
+    "stats": {
+      ".read": "auth != null && root.child('users').child(auth.token.email.replace('.', ',')).exists()",
+      ".write": false
+    }
+  }
+}

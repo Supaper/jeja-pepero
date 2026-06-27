@@ -50,10 +50,10 @@
 | # | 항목 | 결정 |
 |---|------|------|
 | D1 | 수집기 배포 | 수집 배치(scraper)는 **cron**으로 실행(자체 호스팅 또는 GitHub Actions). 자격증명·토큰·데이터는 레포/아티팩트에 커밋 금지 |
-| D2 | 저장소 | **Firebase Firestore**. 웹 대시보드 + 구글 인증 + 접근제어를 한 번에 얻기 위해 채택. PII는 클라우드에 저장되지만 **인증 + 허용목록 보안 규칙으로 접근을 제한**한다(D5). `store` 인터페이스로 추상화해 추후 교체 가능 |
+| D2 | 저장소 | **Firebase Realtime Database(RTDB)**. 웹 대시보드 + 구글 인증 + 접근제어를 한 번에 얻기 위해 채택. PII는 클라우드에 저장되지만 **인증 + 허용목록 보안 규칙으로 접근을 제한**한다(D5). `store` 인터페이스로 추상화해 추후 교체 가능. (키에 `.` 불가 → 이메일은 `.`을 `,`로 인코딩) |
 | D3 | 문서 자동화 | **`.hwpx`** 로 충분. 양식 템플릿은 추후 제공 예정이라 **후순위(Phase 3)** 로 둔다 |
 | D4 | 알림 채널 | **카카오톡 "나에게 보내기"(memo API)** 를 1차 채널로. 운영자 본인 1명 수신. `notifier`를 채널별로 추상화해 추후 메일/텔레그램 등 추가 가능 |
-| D5 | 웹 열람 & 인증 | **정적 프론트(GitHub Pages 등) + Firebase Auth(구글 로그인) + `users` 허용목록**. 공개 URL이어도 데이터는 정적 번들에 없고 Firestore에서 로그인 후 로드. 접근 제한의 **실질 강제는 Firestore 보안 규칙**(허용목록 `users` 컬렉션 기반)이며, 화면의 로그인 redirect는 UX 보조일 뿐이다 |
+| D5 | 웹 열람 & 인증 | **정적 프론트(GitHub Pages 등) + Firebase Auth(구글 로그인) + `users` 허용목록**. 공개 URL이어도 데이터는 정적 번들에 없고 RTDB에서 로그인 후 로드. 접근 제한의 **실질 강제는 RTDB 보안 규칙**(허용목록 `users` 노드 기반)이며, 화면의 로그인 redirect는 UX 보조일 뿐이다 |
 
 ## 3. 사용자 (Users)
 
@@ -125,10 +125,11 @@
 
 ### FR-10. 웹 대시보드 & 접근 제어
 - FR-10.1 정적 프론트엔드(예: GitHub Pages)에서 수집 글·카테고리·월별 통계를 열람한다.
-  정적 번들에는 **데이터를 담지 않고**, 로그인 후 Firestore에서 로드한다.
+  정적 번들에는 **데이터를 담지 않고**, 로그인 후 RTDB에서 로드한다.
 - FR-10.2 **Firebase Auth(구글 로그인)** 로 인증하고, **`users` 허용목록**에 등록된 이메일만 접근한다.
-- FR-10.3 접근 제한의 **실질 강제는 Firestore 보안 규칙**으로 한다. 규칙은 `users/{email}` 문서 존재를
+- FR-10.3 접근 제한의 **실질 강제는 RTDB 보안 규칙**으로 한다. 규칙은 `users/{이메일키}` 노드 존재를
   확인해 `posts` 등 데이터의 read를 허용하고, 클라이언트 write는 금지한다.
+  (RTDB 키엔 `.`을 못 쓰므로 이메일의 `.`은 `,`로 인코딩; 규칙도 `email.replace('.', ',')`로 처리)
   화면의 "미등록 시 로그인으로 redirect"는 **UX 보조일 뿐 보안 경계가 아니다**(클라이언트 우회 가능).
 - FR-10.4 수집기(배치)는 **Firebase Admin SDK**로 규칙을 우회해 `posts`에 기록한다.
 - FR-10.5 `users` 허용목록은 운영자가 콘솔/Admin SDK로만 관리한다(클라이언트 write 금지).
@@ -150,7 +151,7 @@
 - **멱등성**: 같은 배치를 재실행해도 중복 저장/중복 메일이 발생하지 않는다.
 - **이식성**: 로컬/서버/CI(GitHub Actions) 어디서든 동일하게 동작한다.
 - **정중한 크롤링**: rate limit, 재시도, User-Agent 명시, robots 존중.
-- **보안/개인정보**: 수집 대상은 작성자명·제목·링크 등 공개 게시 정보로 한정. 데이터는 Firestore에
+- **보안/개인정보**: 수집 대상은 작성자명·제목·링크 등 공개 게시 정보로 한정. 데이터는 RTDB에
   보관하되 **인증 + 허용목록 보안 규칙**으로 접근을 제한한다(R5). 정적 프론트 번들에는 데이터를 담지 않는다.
   카카오 토큰·Firebase 서비스계정 키 등 시크릿은 환경변수/시크릿으로 주입하고 레포/아티팩트에 커밋 금지.
 
@@ -173,12 +174,12 @@ Category      # 분류 규칙
 RunLog        # 배치 실행 기록
   id, started_at, finished_at, new_count, errors
 
-users         # (Firestore) 웹 접근 허용목록 — 문서 ID = 이메일
-  email, name, role, added_at        # 보안 규칙이 이 컬렉션 존재 여부로 read 허용
+users         # (RTDB) 웹 접근 허용목록 — 키 = 이메일(점은 콤마로 인코딩)
+  name, role, added_at               # 보안 규칙이 이 노드 존재 여부로 read 허용
 ```
 
-Firestore 컬렉션(예): `posts/`(수집 글), `stats/`(월별 집계), `users/`(허용목록).
-`post_key`는 URL/게시글 ID 우선, 없으면 `hash(author + posted_date + title)` → 문서 ID로 사용해 멱등 보장.
+RTDB 경로(예): `posts/{post_key}`(수집 글), `stats/{YYYY-MM}`(월별 집계), `users/{이메일키}`(허용목록).
+`post_key`는 URL/게시글 ID 우선, 없으면 `hash(author + posted_date + title)` → 노드 키로 사용해 멱등 보장.
 
 ## 8. 아키텍처 (제안)
 
@@ -187,27 +188,27 @@ Firestore 컬렉션(예): `posts/`(수집 글), `stats/`(월별 집계), `users/
 ```
 [배치 / cron]  Python
   fetcher(adapters/) → parser → categorizer → store(Firebase Admin SDK)
-       │                                          └──► Firestore: posts/, stats/
+       │                                          └──► RTDB: posts/, stats/
        ├─ notifier(daily) ──► KakaoMemoNotifier (카카오 "나에게 보내기")
        ├─ reporter(monthly) ─► 카카오 요약 + CSV/표 산출물
        └─ doc-generator(hwpx, Phase 3)
 
 [웹 / 정적 프론트]  GitHub Pages
-  login(Firebase Auth, 구글) ──► Firestore 읽기 (보안 규칙: users 허용목록)
+  login(Firebase Auth, 구글) ──► RTDB 읽기 (보안 규칙: users 허용목록)
        └─ 데이터는 번들에 없음, 로그인 후 로드
 
-Firestore 보안 규칙 = 접근 경계 / config(yaml/.env)·시크릿 주입
+RTDB 보안 규칙 = 접근 경계 / config(yaml/.env)·시크릿 주입
 ```
 
 - `adapters/`: 게시판별 fetch+parse (1차: thelifechurch `www56`).
 - `categorizer`: 규칙 기반 분류(설정 파일).
-- `store`: **Firestore**(Admin SDK로 기록). 인터페이스로 추상화해 추후 교체 가능.
+- `store`: **RTDB**(Admin SDK로 기록). 인터페이스로 추상화해 추후 교체 가능.
 - `notifier`: 채널 추상화. 1차 구현 `KakaoMemoNotifier`(토큰은 시크릿, refresh 자동 갱신).
 - `reporter`: 월별 통계 집계 + 카카오 요약 + 산출물(CSV/표) 생성.
-- `web/`: 정적 프론트(로그인 게이트 + 대시보드) + `firestore.rules`.
+- `web/`: 정적 프론트(로그인 게이트 + 대시보드) + `database.rules.json`.
 - `doc-generator`: hwpx 템플릿 치환(Phase 3, 양식 제공 후 착수).
 
-> 데이터는 Firestore에, 접근은 **인증 + 허용목록 규칙**으로 제한. 토큰/서비스계정 키 등 시크릿은
+> 데이터는 RTDB에, 접근은 **인증 + 허용목록 규칙**으로 제한. 토큰/서비스계정 키 등 시크릿은
 > 레포·아티팩트에 커밋하지 않는다(`.gitignore`로 차단).
 
 ## 9. 로드맵 (Milestones)
@@ -215,13 +216,13 @@ Firestore 보안 규칙 = 접근 경계 / config(yaml/.env)·시크릿 주입
 | 단계 | 범위 | 산출물 |
 |------|------|--------|
 | **Phase 0** | 문서화·골격 | 본 PRD, README, CLAUDE.md, 프로젝트 스캐폴드 |
-| **Phase 1 (MVP)** | 모니터링→수집→Firestore 저장→일별 알림 + **웹 로그인 게이트** (카테고리 분류 + 견고한 dedupe + 허용목록 보안 규칙) | 일일 배치, Firestore, 카카오 알림, 접근제어된 대시보드(최소) |
+| **Phase 1 (MVP)** | 모니터링→수집→RTDB 저장→일별 알림 + **웹 로그인 게이트** (카테고리 분류 + 견고한 dedupe + 허용목록 보안 규칙) | 일일 배치, RTDB, 카카오 알림, 접근제어된 대시보드(최소) |
 | **Phase 2** | 월별 통계, 대시보드 UI 보강, 다중 그룹/게시판, 설정 외부화 | 월간 카카오 요약 + CSV, 통계 화면, config 분리, cron 스케줄 |
 | **Phase 3 (후순위)** | **`.hwpx`** 양식 문서 자동 생성 (양식 템플릿 제공 후 착수) | 템플릿 채움 문서 |
 | **Phase 4** | 운영 강화 | 관측성, 알림 채널 추가(메일/텔레그램 등) |
 
-> **빠른 출시 원칙**: UI·통계 화면은 점진적으로 확장하되, **Firestore 보안 규칙(허용목록)은 Phase 1 1일차에 반드시 적용**한다.
-> 규칙 없이 데이터를 Firestore에 올리면 공개 URL = 데이터 전체 노출이므로 보안을 나중으로 미룰 수 없는 유일한 항목이다.
+> **빠른 출시 원칙**: UI·통계 화면은 점진적으로 확장하되, **RTDB 보안 규칙(허용목록)은 Phase 1 1일차에 반드시 적용**한다.
+> 규칙 없이 데이터를 RTDB에 올리면 공개 URL = 데이터 전체 노출이므로 보안을 나중으로 미룰 수 없는 유일한 항목이다.
 
 ## 10. 현행 대비 개선 요약 (Apps Script → To-Be)
 
@@ -229,7 +230,7 @@ Firestore 보안 규칙 = 접근 경계 / config(yaml/.env)·시크릿 주입
 |------|------|-------|
 | 중복 방지 | 작성자별 "마지막 제목" 1건 | 수집 글 집합 기반 dedupe(`post_key`) |
 | 분류 | "공지" 제외 + "큐티나눔" 매칭 | 설정 기반 카테고리 분류기 |
-| 저장 | 작성자별 스프레드시트 시트 | Firestore(인증+허용목록 규칙으로 접근 제한) |
+| 저장 | 작성자별 스프레드시트 시트 | RTDB(인증+허용목록 규칙으로 접근 제한) |
 | 알림 | Gmail 이메일 | 카카오톡 "나에게 보내기"(채널 추상화) |
 | 열람 | 스프레드시트 공유 | 웹 대시보드(구글 로그인 + 허용목록) |
 | 설정 | 코드 하드코딩(ID/명단) | config 파일 + 시크릿 |
@@ -242,9 +243,9 @@ Firestore 보안 규칙 = 접근 경계 / config(yaml/.env)·시크릿 주입
 - **R2 .hwpx 양식**: 양식 템플릿 확보 후 착수(후순위). XML/zip 구조 치환으로 자동화.
 - **R3 카카오 토큰 만료**: access 토큰은 단기, refresh 토큰 갱신 로직 필수. 갱신 실패 시 알림 누락 위험 → 재시도/로그.
 - **R4 카카오 메시지 제약**: 기본 템플릿 길이·서식 제한 → 요약 + 링크 구성으로 회피.
-- **R5 Firestore 규칙 오설정**: 보안 규칙이 허용목록을 강제하지 않으면 공개 URL = 데이터 전체 노출.
+- **R5 RTDB 규칙 오설정**: 보안 규칙이 허용목록을 강제하지 않으면 공개 URL = 데이터 전체 노출.
   → 규칙을 1일차에 적용하고, 클라이언트 redirect에 의존하지 않으며, 규칙 테스트(에뮬레이터)로 검증.
-- **R6 Firebase 비용/한도**: Firestore 무료 한도 내 운영 가정. 읽기/쓰기량 모니터링.
+- **R6 Firebase 비용/한도**: RTDB 무료 한도(동시접속·저장·다운로드) 내 운영 가정. 사용량 모니터링.
 - **A1**: 대상 게시물은 인증 없이 접근 가능한 공개 정보.
 - **A2**: 작성일이 게시판에 `YYYY.MM.DD` 형식으로 노출됨(현행 파싱 가정 유지).
 
@@ -252,14 +253,14 @@ Firestore 보안 규칙 = 접근 경계 / config(yaml/.env)·시크릿 주입
 
 ### 해결됨 (→ §2.3 Decisions)
 - ✅ 수집기 배포: **cron**(자체 호스팅 또는 GitHub Actions). 시크릿·데이터 커밋 금지. (D1)
-- ✅ 저장소: **Firebase Firestore**. 웹 열람·구글 인증·접근제어를 함께 얻기 위해 채택. (D2)
+- ✅ 저장소: **Firebase Realtime Database(RTDB)**. 웹 열람·구글 인증·접근제어를 함께 얻기 위해 채택. (D2)
 - ✅ 문서: **`.hwpx`** 면 충분, 양식 템플릿은 추후 제공 → **후순위**. (D3)
 - ✅ 알림: 메일 대신 **카카오톡 "나에게 보내기"**, 운영자 본인 1명 수신. (D4)
-- ✅ 웹 열람: **정적 프론트(GitHub Pages) + Firebase Auth + `users` 허용목록**, 강제는 Firestore 규칙. (D5)
+- ✅ 웹 열람: **정적 프론트(GitHub Pages) + Firebase Auth + `users` 허용목록**, 강제는 RTDB 규칙. (D5)
 
 ### 남은 질문
 - 카카오 연동: 카카오 개발자 앱 등록 및 `talk_message` scope 토큰 발급은 누가 진행하나?
-- av-board 참고: 기존 `firestore.rules`·Auth 설정·컬렉션 스키마를 공유 가능한가? (없으면 신규 설계)
+- av-board 참고: 기존 RTDB 규칙·Auth 설정·데이터 구조를 공유 가능한가? (없으면 신규 설계)
 - 수집기 실행 위치: 자체 호스팅 머신 vs GitHub Actions(시크릿으로 서비스계정 키 주입)?
 - 일별 배치 실행 시각(cron) 및 월별 통계 발송일은?
 - 웹 프론트 호스팅: GitHub Pages 확정인가, Firebase Hosting도 검토하나?
