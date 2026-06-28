@@ -1,0 +1,44 @@
+name: Backfill Post Content
+
+# 기존 글에 본문(content)을 채워넣습니다. Actions 탭에서 수동 실행.
+on:
+  workflow_dispatch:
+    inputs:
+      probe:
+        description: "PROBE: 본문 컨테이너 구조만 로그 출력(저장 안 함)"
+        type: boolean
+        required: false
+        default: false
+      force:
+        description: "FORCE: 기존 content 도 덮어쓰기"
+        type: boolean
+        required: false
+        default: false
+      limit:
+        description: "최대 처리 건수(비우면 전체)"
+        required: false
+        default: ""
+
+concurrency:
+  group: backfill-content
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        working-directory: scripts
+        run: npm install
+      - name: Run backfill
+        working-directory: scripts
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          PROBE: ${{ inputs.probe && '1' || '' }}
+          FORCE: ${{ inputs.force && '1' || '' }}
+          LIMIT: ${{ inputs.limit }}
+        run: npm run backfill:content

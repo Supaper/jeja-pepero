@@ -1,6 +1,7 @@
 // 게시판 스크래핑 / 큐티 날짜 파싱 공용 로직.
 // 기존 Google Apps Script(monitorDailyCollectionOnly / sendMonthlyQTReport)의
 // 알고리즘을 Node 환경으로 충실히 이식한 것입니다.
+import * as cheerio from "cheerio";
 
 export const TARGET_NAMES = [
   "강성건", "서승민", "양지혜", "유정인", "이재황", "이소현", "임채환",
@@ -88,4 +89,66 @@ export function extractQtDays(title, year, month, daysInMonth) {
     if (day >= 1 && day <= daysInMonth) days.push(day);
   }
   return days;
+}
+
+// 상세페이지 본문이 들어있을 가능성이 높은 컨테이너 후보(앞에서부터 우선).
+// 실제 사이트 구조 확인 후 조정합니다(probeDetail 로 확인).
+const CONTENT_SELECTORS = [
+  ".mdWebzineView", ".mdWebzineCont", ".mdWebzineContent",
+  ".webzine_view", ".board_view", ".view_content", ".bo_content",
+  "#contents .content", "#content",
+];
+
+function nodeToText($, el) {
+  const $el = $(el).clone();
+  $el.find("script, style, noscript, iframe").remove();
+  $el.find("br").replaceWith("\n");
+  $el.find("p, div, li, tr, h1, h2, h3, h4").append("\n");
+  return $el
+    .text()
+    .replace(/\r/g, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** 상세페이지 본문을 텍스트로 추출. 적절한 컨테이너를 못 찾으면 "" 반환. */
+export async function fetchPostContent(link) {
+  const res = await fetch(link);
+  if (!res.ok) throw new Error(`상세 응답 오류: ${res.status}`);
+  const html = await res.text();
+  const $ = cheerio.load(html);
+  $("script, style, noscript, iframe").remove();
+
+  for (const sel of CONTENT_SELECTORS) {
+    const found = $(sel).first();
+    if (found.length) {
+      const text = nodeToText($, found);
+      if (text.length >= 5) return text;
+    }
+  }
+  return ""; // 알 수 없는 구조 → 저장 안 함(모달에서 원문 링크로 폴백)
+}
+
+/** 디버그용: 상세페이지의 본문 후보 컨테이너들을 텍스트 길이순으로 반환(로그 확인용). */
+export async function probeDetail(link) {
+  const res = await fetch(link);
+  const html = await res.text();
+  const $ = cheerio.load(html);
+  $("script, style, noscript").remove();
+  const cands = [];
+  $("div, td, article, section").each((_, el) => {
+    const $el = $(el);
+    const text = $el.text().replace(/\s+/g, " ").trim();
+    cands.push({
+      tag: el.tagName,
+      id: $el.attr("id") || "",
+      cls: $el.attr("class") || "",
+      len: text.length,
+      kids: $el.children().length,
+    });
+  });
+  cands.sort((a, b) => b.len - a.len);
+  return { htmlLen: html.length, top: cands.slice(0, 25) };
 }
