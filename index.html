@@ -41,28 +41,49 @@
         </div>
       </header>
 
-      <main class="content">
-        <!-- 이번 달 큐티 완주 현황 -->
-        <section class="card">
-          <div class="card-head">
-            <h2 id="qt-title">📊 이번 달 큐티 완주 현황</h2>
-            <span id="qt-meta" class="card-meta"></span>
-          </div>
-          <div id="qt-table-wrap" class="table-wrap">
-            <p class="muted" id="qt-loading">불러오는 중…</p>
-          </div>
-        </section>
+      <!-- 탭 네비게이션 (대시보드 + 멤버별) -->
+      <nav id="tabs" class="tabs" aria-label="화면 전환"></nav>
 
-        <!-- 최근 수집된 글 -->
-        <section class="card">
-          <div class="card-head">
-            <h2>🆕 최근 수집된 글</h2>
-            <span class="card-meta">최근 20건</span>
-          </div>
-          <div id="feed-wrap">
-            <p class="muted" id="feed-loading">불러오는 중…</p>
-          </div>
-        </section>
+      <!-- 권한/오류 안내 배너 -->
+      <div id="notice" class="notice" hidden></div>
+
+      <main class="content">
+        <!-- ===== 대시보드 ===== -->
+        <div id="dashboard-view">
+          <!-- 이번 달 큐티 완주 현황 -->
+          <section class="card">
+            <div class="card-head">
+              <h2 id="qt-title">📊 이번 달 큐티 완주 현황</h2>
+              <span id="qt-meta" class="card-meta"></span>
+            </div>
+            <div id="qt-table-wrap" class="table-wrap">
+              <p class="muted" id="qt-loading">불러오는 중…</p>
+            </div>
+          </section>
+
+          <!-- 최근 수집된 글 -->
+          <section class="card">
+            <div class="card-head">
+              <h2>🆕 최근 수집된 글</h2>
+              <span class="card-meta">최근 20건</span>
+            </div>
+            <div id="feed-wrap">
+              <p class="muted" id="feed-loading">불러오는 중…</p>
+            </div>
+          </section>
+        </div>
+
+        <!-- ===== 멤버별 글 ===== -->
+        <div id="member-view" hidden>
+          <section class="card">
+            <div class="card-head">
+              <h2 id="member-title"></h2>
+              <span id="member-meta" class="card-meta"></span>
+            </div>
+            <div id="cat-filter" class="chips"></div>
+            <div id="member-posts"></div>
+          </section>
+        </div>
       </main>
     </section>
 

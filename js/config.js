@@ -43,3 +43,17 @@ export function rateColor(rate) {
     : rate >= 50 ? "#e07b00"
     : "#d93025";
 }
+
+// 제목으로부터 카테고리 추론 (현재 데이터에 별도 카테고리 필드가 없어 제목에서 유도).
+// 1) 맨 앞 대괄호/괄호 태그 → 그 값  예) "[큐티나눔] ..." → "큐티나눔"
+// 2) 키워드 매칭(큐티나눔/과제/공지)  3) 그 외 "기타"
+export function categorize(title) {
+  const t = (title || "").trim();
+  const m = t.match(/^[\[\(【]\s*([^\]\)】]+?)\s*[\]\)】]/);
+  if (m) return m[1].trim();
+  const norm = t.replace(/\s+/g, "");
+  if (norm.includes("큐티나눔")) return "큐티나눔";
+  if (norm.includes("과제")) return "과제";
+  if (norm.includes("공지")) return "공지";
+  return "기타";
+}
