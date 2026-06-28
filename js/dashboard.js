@@ -1,8 +1,16 @@
-// 대시보드 렌더링: RTDB(/posts/<이름>)를 읽어
-//  ① 이번 달 큐티 완주 현황 표  ② 최근 수집된 글 피드 를 그립니다.
+// 메인 화면 컨트롤러: RTDB(/posts/<이름>)를 한 번 읽어
+//   - 대시보드(이번 달 큐티 완주 현황 + 최근 글 피드)
+//   - 멤버별 탭(그 사람의 글 목록 + 카테고리 필터)
+// 를 렌더링합니다.
 import { db } from "./firebase-config.js";
 import { ref, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-import { QT_TARGET_NAMES, TARGET_NAMES, extractQtDays, rateColor } from "./config.js";
+import {
+  QT_TARGET_NAMES,
+  TARGET_NAMES,
+  extractQtDays,
+  rateColor,
+  categorize,
+} from "./config.js";
 
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => (
@@ -10,24 +18,35 @@ function esc(s) {
   ));
 }
 
-// /posts/<name> 전체를 한 번에 읽어 { name: [post,...] } 로 반환
+let postsByName = {}; // { name: [post, ...] }
+let loaded = false;
+
+// /posts/<name> 전체를 한 번에 읽기. 권한 오류 등은 첫 오류를 반환.
 async function loadAllPosts(names) {
   const result = {};
+  let firstError = null;
   await Promise.all(
     names.map(async (name) => {
       try {
         const snap = await get(ref(db, `posts/${name}`));
-        const val = snap.exists() ? snap.val() : {};
-        result[name] = Object.values(val);
-      } catch (_) {
+        result[name] = snap.exists() ? Object.values(snap.val()) : [];
+      } catch (e) {
         result[name] = [];
+        if (!firstError) firstError = e;
       }
     })
   );
-  return result;
+  return { result, firstError };
 }
 
-function renderQtTable(postsByName) {
+function showNotice(html) {
+  const el = document.getElementById("notice");
+  el.innerHTML = html;
+  el.hidden = false;
+}
+
+/* ===================== 대시보드 ===================== */
+function renderQtTable() {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
@@ -46,10 +65,8 @@ function renderQtTable(postsByName) {
       for (const d of extractQtDays(title, year, month, daysInMonth)) uniqueDays.add(d);
     }
     const count = uniqueDays.size;
-    const rate = (count / daysInMonth) * 100;
-    return { name, count, rate };
+    return { name, count, rate: (count / daysInMonth) * 100 };
   });
-
   rows.sort((a, b) => (b.rate !== a.rate ? b.rate - a.rate : a.name.localeCompare(b.name, "ko")));
 
   let html = `<table class="qt-table"><thead><tr>
@@ -68,14 +85,13 @@ function renderQtTable(postsByName) {
   document.getElementById("qt-table-wrap").innerHTML = html;
 }
 
-function renderFeed(postsByName) {
+function renderFeed() {
   const all = [];
   for (const name of TARGET_NAMES) {
     for (const p of postsByName[name] || []) {
       if (p && p.title) all.push({ name, ...p });
     }
   }
-  // 작성일 → 수집일시 순으로 최신 정렬
   all.sort((a, b) =>
     String(b.postDate || "").localeCompare(String(a.postDate || "")) ||
     String(b.collectedAt || "").localeCompare(String(a.collectedAt || ""))
@@ -97,20 +113,120 @@ function renderFeed(postsByName) {
     `</ul>`;
 }
 
-let loaded = false;
+/* ===================== 멤버별 글 ===================== */
+let currentMember = null;
+let currentCat = "__all";
 
-/** 로그인 성공 후 1회 호출하여 대시보드를 채웁니다. */
+function renderMember(name) {
+  currentMember = name;
+  currentCat = "__all";
+  document.getElementById("member-title").textContent = `🙋 ${name} 님의 글`;
+
+  const posts = (postsByName[name] || [])
+    .filter((p) => p && p.title)
+    .map((p) => ({ ...p, category: categorize(p.title) }))
+    .sort((a, b) =>
+      String(b.postDate || "").localeCompare(String(a.postDate || "")) ||
+      String(b.collectedAt || "").localeCompare(String(a.collectedAt || ""))
+    );
+
+  document.getElementById("member-meta").textContent = `총 ${posts.length}건`;
+
+  // 카테고리별 개수
+  const counts = {};
+  for (const p of posts) counts[p.category] = (counts[p.category] || 0) + 1;
+  const cats = Object.keys(counts).sort((a, b) => a.localeCompare(b, "ko"));
+
+  const filterEl = document.getElementById("cat-filter");
+  filterEl.innerHTML =
+    `<button class="chip active" data-cat="__all">전체 (${posts.length})</button>` +
+    cats.map((c) => `<button class="chip" data-cat="${esc(c)}">${esc(c)} (${counts[c]})</button>`).join("");
+
+  filterEl.querySelectorAll(".chip").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      currentCat = btn.dataset.cat;
+      filterEl.querySelectorAll(".chip").forEach((b) => b.classList.toggle("active", b === btn));
+      paintMemberPosts(posts);
+    });
+  });
+
+  paintMemberPosts(posts);
+}
+
+function paintMemberPosts(posts) {
+  const list = currentCat === "__all" ? posts : posts.filter((p) => p.category === currentCat);
+  const wrap = document.getElementById("member-posts");
+  if (list.length === 0) {
+    wrap.innerHTML = `<p class="muted">표시할 글이 없습니다.</p>`;
+    return;
+  }
+  wrap.innerHTML =
+    `<ul class="post-list">` +
+    list.map((p) => `<li>
+        <span class="post-date">${esc(p.postDate || "")}</span>
+        <span class="post-cat">${esc(p.category)}</span>
+        <a class="post-title" href="${esc(p.link || "#")}" target="_blank" rel="noopener">${esc(p.title)}</a>
+      </li>`).join("") +
+    `</ul>`;
+}
+
+/* ===================== 탭 ===================== */
+function buildTabs() {
+  const nav = document.getElementById("tabs");
+  const dashEl = document.getElementById("dashboard-view");
+  const memberEl = document.getElementById("member-view");
+
+  const tabs = [{ key: "__dash", label: "📊 대시보드" }]
+    .concat(TARGET_NAMES.map((n) => ({ key: n, label: n })));
+
+  nav.innerHTML = tabs
+    .map((t, i) =>
+      `<button class="tab${i === 0 ? " active" : ""}" data-key="${esc(t.key)}">${esc(t.label)}</button>`
+    ).join("");
+
+  nav.querySelectorAll(".tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      nav.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b === btn));
+      const key = btn.dataset.key;
+      if (key === "__dash") {
+        dashEl.hidden = false;
+        memberEl.hidden = true;
+      } else {
+        dashEl.hidden = true;
+        memberEl.hidden = false;
+        renderMember(key);
+      }
+    });
+  });
+}
+
+/** 로그인 성공 후 1회 호출. */
 export async function initDashboard() {
   if (loaded) return;
   loaded = true;
   try {
-    const postsByName = await loadAllPosts(TARGET_NAMES);
-    renderQtTable(postsByName);
-    renderFeed(postsByName);
+    const { result, firstError } = await loadAllPosts(TARGET_NAMES);
+    postsByName = result;
+
+    const total = Object.values(result).reduce((s, a) => s + a.length, 0);
+    if (firstError && total === 0) {
+      const msg = String(firstError && firstError.message || firstError);
+      if (/permission|denied/i.test(msg)) {
+        showNotice(
+          "⚠️ 데이터 읽기 권한이 없습니다. <b>Realtime Database → 규칙</b>에서 " +
+          "<code>posts</code>·<code>users</code> 의 <code>.read</code> 를 " +
+          "<code>\"auth != null\"</code> 로 설정해 게시하세요."
+        );
+      } else {
+        showNotice("⚠️ 데이터를 불러오지 못했습니다: " + esc(msg));
+      }
+    }
+
+    buildTabs();
+    renderQtTable();
+    renderFeed();
   } catch (e) {
-    document.getElementById("qt-table-wrap").innerHTML =
-      `<p class="muted">데이터를 불러오지 못했습니다: ${esc(e.message)}</p>`;
-    document.getElementById("feed-wrap").innerHTML = "";
     loaded = false; // 재시도 허용
+    showNotice("⚠️ 초기화 오류: " + esc(e.message));
   }
 }
