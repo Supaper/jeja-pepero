@@ -9,7 +9,31 @@ import { getDatabase } from "firebase-admin/database";
 const DATABASE_URL =
   "https://jeja-pepero-default-rtdb.asia-southeast1.firebasedatabase.app";
 
-/** FIREBASE_SERVICE_ACCOUNT(JSON 또는 base64)를 객체로 파싱. */
+// JSON 문자열 '안쪽(따옴표 사이)'에 들어간 raw 제어문자(진짜 줄바꿈/탭 등)를
+// 올바른 이스케이프(\n, \r, \t)로 바꿔 깨진 JSON 을 복구. (구조용 공백은 건드리지 않음)
+function repairControlCharsInStrings(s) {
+  let out = "";
+  let inStr = false;
+  let escaped = false;
+  for (const ch of s) {
+    if (escaped) { out += ch; escaped = false; continue; }
+    if (ch === "\\") { out += ch; escaped = true; continue; }
+    if (ch === '"') { inStr = !inStr; out += ch; continue; }
+    if (inStr) {
+      if (ch === "\n") { out += "\\n"; continue; }
+      if (ch === "\r") { out += "\\r"; continue; }
+      if (ch === "\t") { out += "\\t"; continue; }
+    }
+    out += ch;
+  }
+  return out;
+}
+
+/**
+ * FIREBASE_SERVICE_ACCOUNT 를 객체로 파싱.
+ * - base64 / 원문 JSON 모두 허용
+ * - 붙여넣기 과정에서 private_key 줄바꿈이 깨진 JSON 도 자동 복구
+ */
 export function parseServiceAccount(raw) {
   if (!raw) {
     throw new Error(
@@ -26,13 +50,16 @@ export function parseServiceAccount(raw) {
       throw new Error("FIREBASE_SERVICE_ACCOUNT base64 디코드 실패: " + e.message);
     }
   }
+
   try {
     return JSON.parse(jsonStr);
-  } catch (e) {
-    throw new Error(
-      "FIREBASE_SERVICE_ACCOUNT JSON 파싱 실패: " + e.message +
-        " (private_key 의 줄바꿈이 깨졌을 수 있습니다 → base64 인코딩으로 등록을 권장합니다)"
-    );
+  } catch (_) {
+    // 깨진 줄바꿈 자동 복구 후 재시도
+    try {
+      return JSON.parse(repairControlCharsInStrings(jsonStr));
+    } catch (e) {
+      throw new Error("FIREBASE_SERVICE_ACCOUNT 파싱 실패: " + e.message);
+    }
   }
 }
 
