@@ -44,6 +44,26 @@ export function rateColor(rate) {
     : "#d93025";
 }
 
+// 카테고리 → [배경색, 글자색]. 알려진 카테고리는 고정색, 그 외는 해시로 팔레트 배정.
+const CAT_COLORS = {
+  "큐티나눔": ["#eef2ff", "#3548b5"],
+  "예배은혜나눔": ["#ecfdf5", "#047857"],
+  "과제": ["#fef3c7", "#b45309"],
+  "공지": ["#fee2e2", "#b91c1c"],
+  "기타": ["#f1f5f9", "#475569"],
+};
+const CAT_PALETTE = [
+  ["#e0f2fe", "#0369a1"], ["#fae8ff", "#a21caf"], ["#dcfce7", "#15803d"],
+  ["#ffedd5", "#c2410c"], ["#e0e7ff", "#4338ca"], ["#fce7f3", "#be185d"],
+  ["#cffafe", "#0e7490"], ["#fef9c3", "#a16207"],
+];
+export function categoryColor(cat) {
+  if (CAT_COLORS[cat]) return CAT_COLORS[cat];
+  let h = 0;
+  for (const ch of String(cat)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return CAT_PALETTE[h % CAT_PALETTE.length];
+}
+
 // 제목으로부터 카테고리 추론 (현재 데이터에 별도 카테고리 필드가 없어 제목에서 유도).
 // 1) 맨 앞 대괄호/괄호 태그 → 그 값  예) "[큐티나눔] ..." → "큐티나눔"
 // 2) 키워드 매칭(큐티나눔/과제/공지)  3) 그 외 "기타"

@@ -1,6 +1,7 @@
 // 메인 화면 컨트롤러: RTDB(/posts/<이름>)를 한 번 읽어
 //   - 대시보드(이번 달 큐티 완주 현황 + 최근 글 피드)
-//   - 멤버별 탭(그 사람의 글 목록 + 카테고리 필터)
+//   - 멤버별(접이식 사이드바 탭): 글 목록 + 카테고리 필터 + 색상
+//   - 글 클릭 시 본문 모달(저장된 content 표시, 없으면 원문 링크 안내)
 // 를 렌더링합니다.
 import { db } from "./firebase-config.js";
 import { ref, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
@@ -10,6 +11,7 @@ import {
   extractQtDays,
   rateColor,
   categorize,
+  categoryColor,
 } from "./config.js";
 
 function esc(s) {
@@ -18,10 +20,14 @@ function esc(s) {
   ));
 }
 
+function catBadge(cat) {
+  const [bg, fg] = categoryColor(cat);
+  return `<span class="post-cat" style="background:${bg}; color:${fg};">${esc(cat)}</span>`;
+}
+
 let postsByName = {}; // { name: [post, ...] }
 let loaded = false;
 
-// /posts/<name> 전체를 한 번에 읽기. 권한 오류 등은 첫 오류를 반환.
 async function loadAllPosts(names) {
   const result = {};
   let firstError = null;
@@ -43,6 +49,56 @@ function showNotice(html) {
   const el = document.getElementById("notice");
   el.innerHTML = html;
   el.hidden = false;
+}
+
+/* ===================== 글 보기 모달 ===================== */
+function openPostModal(post) {
+  const cat = post.category || categorize(post.title);
+  const [bg, fg] = categoryColor(cat);
+  const catEl = document.getElementById("modal-cat");
+  catEl.textContent = cat;
+  catEl.style.background = bg;
+  catEl.style.color = fg;
+  document.getElementById("modal-title").textContent = post.title || "";
+  document.getElementById("modal-meta").textContent =
+    [post.name, post.postDate].filter(Boolean).join(" · ");
+
+  const body = document.getElementById("modal-body");
+  if (post.content && post.content.trim()) {
+    body.className = "modal-body";
+    body.textContent = post.content; // pre-wrap CSS로 줄바꿈 유지 (안전: 텍스트로 삽입)
+  } else {
+    body.className = "modal-body empty";
+    body.textContent = "본문이 아직 저장되지 않았습니다. 아래 ‘원문 열기’로 확인하세요.";
+  }
+
+  const link = document.getElementById("modal-link");
+  link.href = post.link || "#";
+
+  const modal = document.getElementById("post-modal");
+  modal.hidden = false;
+  document.body.style.overflow = "hidden";
+}
+
+function closeModal() {
+  document.getElementById("post-modal").hidden = true;
+  document.body.style.overflow = "";
+}
+
+// 클릭 시 모달을 여는 글 링크 HTML (data-key 로 위치 식별)
+function postLinkHtml(listId, idx, title) {
+  return `<a class="post-title" href="#" data-list="${listId}" data-idx="${idx}">${esc(title)}</a>`;
+}
+
+// 컨테이너 내 .post-title 클릭 → 모달 (이벤트 위임)
+function wirePostClicks(container, list) {
+  container.querySelectorAll(".post-title").forEach((a) => {
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      const idx = Number(a.dataset.idx);
+      if (!Number.isNaN(idx) && list[idx]) openPostModal(list[idx]);
+    });
+  });
 }
 
 /* ===================== 대시보드 ===================== */
@@ -85,76 +141,80 @@ function renderQtTable() {
   document.getElementById("qt-table-wrap").innerHTML = html;
 }
 
+let feedList = [];
 function renderFeed() {
-  const all = [];
+  feedList = [];
   for (const name of TARGET_NAMES) {
     for (const p of postsByName[name] || []) {
-      if (p && p.title) all.push({ name, ...p });
+      if (p && p.title) feedList.push({ name, category: categorize(p.title), ...p });
     }
   }
-  all.sort((a, b) =>
+  feedList.sort((a, b) =>
     String(b.postDate || "").localeCompare(String(a.postDate || "")) ||
     String(b.collectedAt || "").localeCompare(String(a.collectedAt || ""))
   );
+  feedList = feedList.slice(0, 20);
 
-  const top = all.slice(0, 20);
   const wrap = document.getElementById("feed-wrap");
-  if (top.length === 0) {
+  if (feedList.length === 0) {
     wrap.innerHTML = `<p class="muted">아직 수집된 글이 없습니다. (GitHub Actions 수집 실행 후 표시됩니다)</p>`;
     return;
   }
   wrap.innerHTML =
     `<ul class="feed">` +
-    top.map((p) => `<li>
+    feedList.map((p, i) => `<li>
         <span class="feed-date">${esc(p.postDate || "")}</span>
         <span class="feed-name">${esc(p.name)}</span>
-        <a class="feed-title" href="${esc(p.link || "#")}" target="_blank" rel="noopener">${esc(p.title)}</a>
+        ${catBadge(p.category)}
+        ${postLinkHtml("feed", i, p.title)}
       </li>`).join("") +
     `</ul>`;
+  wirePostClicks(wrap, feedList);
 }
 
 /* ===================== 멤버별 글 ===================== */
-let currentMember = null;
+let memberPosts = [];
 let currentCat = "__all";
 
 function renderMember(name) {
-  currentMember = name;
   currentCat = "__all";
   document.getElementById("member-title").textContent = `🙋 ${name} 님의 글`;
 
-  const posts = (postsByName[name] || [])
+  memberPosts = (postsByName[name] || [])
     .filter((p) => p && p.title)
-    .map((p) => ({ ...p, category: categorize(p.title) }))
+    .map((p) => ({ ...p, name, category: categorize(p.title) }))
     .sort((a, b) =>
       String(b.postDate || "").localeCompare(String(a.postDate || "")) ||
       String(b.collectedAt || "").localeCompare(String(a.collectedAt || ""))
     );
 
-  document.getElementById("member-meta").textContent = `총 ${posts.length}건`;
+  document.getElementById("member-meta").textContent = `총 ${memberPosts.length}건`;
 
-  // 카테고리별 개수
   const counts = {};
-  for (const p of posts) counts[p.category] = (counts[p.category] || 0) + 1;
+  for (const p of memberPosts) counts[p.category] = (counts[p.category] || 0) + 1;
   const cats = Object.keys(counts).sort((a, b) => a.localeCompare(b, "ko"));
 
   const filterEl = document.getElementById("cat-filter");
   filterEl.innerHTML =
-    `<button class="chip active" data-cat="__all">전체 (${posts.length})</button>` +
-    cats.map((c) => `<button class="chip" data-cat="${esc(c)}">${esc(c)} (${counts[c]})</button>`).join("");
+    `<button class="chip active" data-cat="__all">전체 (${memberPosts.length})</button>` +
+    cats.map((c) => {
+      const [bg, fg] = categoryColor(c);
+      return `<button class="chip" data-cat="${esc(c)}" style="--chip-bg:${bg}; --chip-fg:${fg};">${esc(c)} (${counts[c]})</button>`;
+    }).join("");
 
   filterEl.querySelectorAll(".chip").forEach((btn) => {
     btn.addEventListener("click", () => {
       currentCat = btn.dataset.cat;
       filterEl.querySelectorAll(".chip").forEach((b) => b.classList.toggle("active", b === btn));
-      paintMemberPosts(posts);
+      paintMemberPosts();
     });
   });
 
-  paintMemberPosts(posts);
+  paintMemberPosts();
 }
 
-function paintMemberPosts(posts) {
-  const list = currentCat === "__all" ? posts : posts.filter((p) => p.category === currentCat);
+function paintMemberPosts() {
+  const list = currentCat === "__all" ? memberPosts : memberPosts.filter((p) => p.category === currentCat);
   const wrap = document.getElementById("member-posts");
   if (list.length === 0) {
     wrap.innerHTML = `<p class="muted">표시할 글이 없습니다.</p>`;
@@ -162,15 +222,21 @@ function paintMemberPosts(posts) {
   }
   wrap.innerHTML =
     `<ul class="post-list">` +
-    list.map((p) => `<li>
+    list.map((p, i) => `<li>
         <span class="post-date">${esc(p.postDate || "")}</span>
-        <span class="post-cat">${esc(p.category)}</span>
-        <a class="post-title" href="${esc(p.link || "#")}" target="_blank" rel="noopener">${esc(p.title)}</a>
+        ${catBadge(p.category)}
+        ${postLinkHtml("member", i, p.title)}
       </li>`).join("") +
     `</ul>`;
+  wirePostClicks(wrap, list);
 }
 
-/* ===================== 탭 ===================== */
+/* ===================== 사이드바 / 탭 ===================== */
+function setSidebar(open) {
+  document.getElementById("sidebar").classList.toggle("open", open);
+  document.getElementById("sidebar-backdrop").hidden = !open;
+}
+
 function buildTabs() {
   const nav = document.getElementById("tabs");
   const dashEl = document.getElementById("dashboard-view");
@@ -181,12 +247,12 @@ function buildTabs() {
 
   nav.innerHTML = tabs
     .map((t, i) =>
-      `<button class="tab${i === 0 ? " active" : ""}" data-key="${esc(t.key)}">${esc(t.label)}</button>`
+      `<button class="side-item${i === 0 ? " active" : ""}" data-key="${esc(t.key)}">${esc(t.label)}</button>`
     ).join("");
 
-  nav.querySelectorAll(".tab").forEach((btn) => {
+  nav.querySelectorAll(".side-item").forEach((btn) => {
     btn.addEventListener("click", () => {
-      nav.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b === btn));
+      nav.querySelectorAll(".side-item").forEach((b) => b.classList.toggle("active", b === btn));
       const key = btn.dataset.key;
       if (key === "__dash") {
         dashEl.hidden = false;
@@ -196,7 +262,23 @@ function buildTabs() {
         memberEl.hidden = false;
         renderMember(key);
       }
+      setSidebar(false); // 선택 후 닫기
     });
+  });
+
+  // 토글/백드롭/모달 닫기 배선
+  document.getElementById("sidebar-toggle").addEventListener("click", () => {
+    const open = !document.getElementById("sidebar").classList.contains("open");
+    setSidebar(open);
+  });
+  document.getElementById("sidebar-backdrop").addEventListener("click", () => setSidebar(false));
+
+  document.getElementById("modal-close").addEventListener("click", closeModal);
+  document.getElementById("post-modal").addEventListener("click", (e) => {
+    if (e.target.id === "post-modal") closeModal();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { closeModal(); setSidebar(false); }
   });
 }
 
@@ -210,7 +292,7 @@ export async function initDashboard() {
 
     const total = Object.values(result).reduce((s, a) => s + a.length, 0);
     if (firstError && total === 0) {
-      const msg = String(firstError && firstError.message || firstError);
+      const msg = String((firstError && firstError.message) || firstError);
       if (/permission|denied/i.test(msg)) {
         showNotice(
           "⚠️ 데이터 읽기 권한이 없습니다. <b>Realtime Database → 규칙</b>에서 " +
@@ -226,7 +308,7 @@ export async function initDashboard() {
     renderQtTable();
     renderFeed();
   } catch (e) {
-    loaded = false; // 재시도 허용
+    loaded = false;
     showNotice("⚠️ 초기화 오류: " + esc(e.message));
   }
 }

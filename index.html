@@ -34,6 +34,7 @@
     <!-- ===================== 메인 화면 ===================== -->
     <section id="main-view" class="view main-view" hidden>
       <header class="topbar">
+        <button id="sidebar-toggle" class="hamburger" type="button" aria-label="메뉴 열기">☰</button>
         <div class="topbar-brand">🥨 제자 페페로 <span class="topbar-sub">큐티 모니터링</span></div>
         <div class="topbar-user">
           <span id="user-name" class="user-name"></span>
@@ -41,8 +42,12 @@
         </div>
       </header>
 
-      <!-- 탭 네비게이션 (대시보드 + 멤버별) -->
-      <nav id="tabs" class="tabs" aria-label="화면 전환"></nav>
+      <!-- 접이식 사이드바 (대시보드 + 멤버별) -->
+      <aside id="sidebar" class="sidebar" aria-label="화면 전환">
+        <div class="sidebar-head">메뉴</div>
+        <nav id="tabs" class="side-nav"></nav>
+      </aside>
+      <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
 
       <!-- 권한/오류 안내 배너 -->
       <div id="notice" class="notice" hidden></div>
@@ -85,6 +90,22 @@
           </section>
         </div>
       </main>
+
+      <!-- 글 보기 모달 -->
+      <div id="post-modal" class="modal" hidden>
+        <div class="modal-box" role="dialog" aria-modal="true">
+          <button id="modal-close" class="modal-close" type="button" aria-label="닫기">✕</button>
+          <div class="modal-head">
+            <span id="modal-cat" class="post-cat"></span>
+            <h3 id="modal-title"></h3>
+            <div id="modal-meta" class="card-meta"></div>
+          </div>
+          <div id="modal-body" class="modal-body"></div>
+          <div class="modal-foot">
+            <a id="modal-link" href="#" target="_blank" rel="noopener">원문 열기 ↗</a>
+          </div>
+        </div>
+      </div>
     </section>
 
   </div>

@@ -7,6 +7,7 @@ import {
   TARGET_NAMES,
   START_DATE_STRING,
   fetchPosts,
+  fetchPostContent,
 } from "./lib/scrape.js";
 
 function nowKst() {
@@ -48,11 +49,16 @@ async function main() {
         emailBody += `<h3 style="color:#2c3e50; margin-bottom:5px;">[${name}] 새 글 ${fresh.length}건</h3><ul style="margin-top:0;">`;
         const postsRef = db.ref(`posts/${name}`);
         for (const post of fresh) {
+          let content = "";
+          try {
+            content = await fetchPostContent(post.link);
+          } catch (_) { /* 본문 실패는 무시(제목/링크는 저장) */ }
           await postsRef.push({
             collectedAt: checkedAt,
             postDate: post.date,
             title: post.title,
             link: post.link,
+            content,
           });
           emailBody += `<li>(${post.date}) <a href="${post.link}" style="text-decoration:none; color:#1a73e8;">${post.title}</a></li>`;
         }
