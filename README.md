@@ -100,7 +100,7 @@ state/<이름>/lastTitle : 중복 방지 기준점
 
 | 시크릿 | 설명 |
 |--------|------|
-| `FIREBASE_SERVICE_ACCOUNT` | Firebase 콘솔 → 프로젝트 설정 → 서비스 계정 → 새 비공개 키(JSON) **전체 내용** |
+| `FIREBASE_SERVICE_ACCOUNT` | Firebase 콘솔 → 프로젝트 설정 → 서비스 계정 → 새 비공개 키(JSON). **base64 권장**(아래) |
 | `MAIL_USERNAME` | 보내는 Gmail 주소 |
 | `MAIL_PASSWORD` | Gmail **앱 비밀번호** (2단계 인증 후 발급) |
 | `MAIL_TO` | 받는 사람 (생략 시 `MAIL_USERNAME`) |
@@ -120,7 +120,13 @@ state/<이름>/lastTitle : 중복 방지 기준점
 3. **Google Sheets API 사용 설정**: [Google Cloud 콘솔](https://console.cloud.google.com/apis/library/sheets.googleapis.com)
    에서 해당(=Firebase) 프로젝트의 Sheets API 를 **사용 설정**.
 4. **GitHub Secret 등록**: 저장소 Settings → Secrets → Actions →
-   `FIREBASE_SERVICE_ACCOUNT` 에 위 JSON 전체 붙여넣기.
+   `FIREBASE_SERVICE_ACCOUNT` 에 등록. **base64 인코딩 권장** —
+   JSON 을 그대로 붙여넣으면 `private_key` 의 줄바꿈이 깨져 파싱 오류가 날 수 있습니다.
+   ```bash
+   base64 -w0 service-account.json    # 출력 전체를 시크릿 값으로 붙여넣기
+   #  macOS: base64 -i service-account.json | tr -d '\n'
+   ```
+   (스크립트는 base64/JSON 둘 다 자동 인식합니다)
 
 ### 실행 — 방법 A: GitHub Actions (권장, 키를 로컬에 두지 않음)
 **Actions 탭 → "Migrate Sheets to RTDB (one-off)" → Run workflow**

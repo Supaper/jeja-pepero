@@ -11,21 +11,15 @@
 //
 // 실행:  cd scripts && npm install && FIREBASE_SERVICE_ACCOUNT='...' npm run migrate:sheets
 import { google } from "googleapis";
-import { initDb } from "./lib/firebase.js";
+import { initDb, parseServiceAccount } from "./lib/firebase.js";
 import { TARGET_NAMES } from "./lib/scrape.js";
 
 const SPREADSHEET_ID =
   process.env.SPREADSHEET_ID || "1REYNHKvoTqhre8j-Mqe2SoJBANcDmset-obY_VKaoQE";
 const FORCE = process.env.FORCE === "1";
 
-function getServiceAccount() {
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (!raw) throw new Error("환경변수 FIREBASE_SERVICE_ACCOUNT 가 없습니다.");
-  return JSON.parse(raw);
-}
-
 async function getSheetsClient() {
-  const creds = getServiceAccount();
+  const creds = parseServiceAccount(process.env.FIREBASE_SERVICE_ACCOUNT);
   const auth = new google.auth.GoogleAuth({
     credentials: {
       client_email: creds.client_email,
