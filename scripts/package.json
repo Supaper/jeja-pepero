@@ -13,7 +13,8 @@
     "backfill:content": "node backfill-content.js",
     "seed:members": "node seed-members.js",
     "set:admin": "node set-admin.js",
-    "dedupe:posts": "node dedupe-posts.js"
+    "dedupe:posts": "node dedupe-posts.js",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=20"
