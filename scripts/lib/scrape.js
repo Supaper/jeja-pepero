@@ -34,12 +34,8 @@ export const DOMAIN = "http://www.thelifechurch.kr";
  * 한 멤버의 게시판 페이지를 가져와 게시물 목록을 파싱.
  * 반환: { posts: [{date,title,link}], firstTitle } (posts 는 페이지 표시 순서 = 최신 우선)
  */
-export async function fetchPosts(name) {
-  const url = BASE_URL + encodeURIComponent(name);
-  const res = await fetchWithTimeout(url);
-  if (!res.ok) throw new Error(`${name} 페이지 응답 오류: ${res.status}`);
-  const html = await res.text();
-
+// 목록 HTML 파싱 → { posts:[{date,title,link}], firstTitle } (페이지 표시 순서 = 최신 우선)
+export function parseList(html) {
   const articles = html.split('class="mdDefaultW100 mdWebzinecon');
   const posts = [];
   let firstTitle = "";
@@ -60,22 +56,32 @@ export async function fetchPosts(name) {
     const dateMatch = articleHtml.match(/등록일\s*:\s*(\d{4}\.\d{2}\.\d{2})/);
     const postDate = dateMatch ? dateMatch[1] : "0000.00.00";
 
-    // 공지글 제외
-    if (cleanTitle.indexOf("공지") !== -1) continue;
+    if (cleanTitle.indexOf("공지") !== -1) continue; // 공지글 제외
 
     if (isFirstValid) {
       firstTitle = cleanTitle;
       isFirstValid = false;
     }
-
     posts.push({
       date: postDate,
       title: cleanTitle,
       link: DOMAIN + relativeLink.replace(/&amp;/g, "&"),
     });
   }
-
   return { posts, firstTitle };
+}
+
+// 특정 멤버의 목록 페이지 HTML 가져오기 (page>1 이면 pageParam 추가)
+export async function fetchListHtml(name, page = 1, pageParam = "page") {
+  let url = BASE_URL + encodeURIComponent(name);
+  if (page && page > 1) url += `&${pageParam}=${page}`;
+  const res = await fetchWithTimeout(url);
+  if (!res.ok) throw new Error(`${name} 목록 응답 오류: ${res.status}`);
+  return res.text();
+}
+
+export async function fetchPosts(name) {
+  return parseList(await fetchListHtml(name, 1));
 }
 
 /**
