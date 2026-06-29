@@ -12,6 +12,8 @@ import {
   rateColor,
   categorize,
   categoryColor,
+  isNotice,
+  postNum,
 } from "./config.js";
 
 function esc(s) {
@@ -53,6 +55,20 @@ async function loadMemberList() {
   return TARGET_NAMES.map((n) => ({ name: n, qt: QT_TARGET_NAMES.includes(n), active: true }));
 }
 
+// 공지글 제거 + 게시글 번호(num) 기준 중복 제거(본문 있는 항목 우선).
+function cleanPosts(arr) {
+  const byNum = new Map();
+  const noNum = [];
+  for (const p of arr) {
+    if (!p || !p.title || isNotice(p.title)) continue;
+    const num = postNum(p.link);
+    if (!num) { noNum.push(p); continue; }
+    const prev = byNum.get(num);
+    if (!prev || (!prev.content && p.content)) byNum.set(num, p);
+  }
+  return [...byNum.values(), ...noNum];
+}
+
 async function loadAllPosts(names) {
   const result = {};
   let firstError = null;
@@ -60,7 +76,7 @@ async function loadAllPosts(names) {
     names.map(async (name) => {
       try {
         const snap = await get(ref(db, `posts/${name}`));
-        result[name] = snap.exists() ? Object.values(snap.val()) : [];
+        result[name] = snap.exists() ? cleanPosts(Object.values(snap.val())) : [];
       } catch (e) {
         result[name] = [];
         if (!firstError) firstError = e;
