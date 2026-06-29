@@ -349,6 +349,7 @@ function renderAdmin() {
     if (!name) return;
     if (memberList.some((m) => m.name === name)) { msg("이미 있는 이름입니다.", false); return; }
     try {
+      await ensureSeeded();
       await set(ref(db, "members/" + name), { name, qt: true, active: true, createdAt: new Date().toISOString() });
       msg(`'${name}' 추가됨`, true);
       await reloadMembersAndUi();
@@ -359,6 +360,7 @@ function renderAdmin() {
     cb.addEventListener("change", async () => {
       const name = cb.dataset.name, field = cb.dataset.act;
       try {
+        await ensureSeeded();
         await update(ref(db, "members/" + name), { [field]: cb.checked });
         await reloadMembersAndUi();
       } catch (e) { cb.checked = !cb.checked; msg("변경 실패: " + (e.message || e), false); }
@@ -370,12 +372,25 @@ function renderAdmin() {
       const name = b.dataset.name;
       if (!confirm(`'${name}' 멤버를 삭제할까요? (수집한 글 기록은 유지됩니다)`)) return;
       try {
+        await ensureSeeded();
         await remove(ref(db, "members/" + name));
         msg(`'${name}' 삭제됨`, true);
         await reloadMembersAndUi();
       } catch (e) { msg("삭제 실패: " + (e.message || e), false); }
     });
   });
+}
+
+// /members 가 비어 있으면(폴백 표시 중) 현재 전체 명단을 먼저 통째로 저장.
+// 한 명만 토글했을 때 나머지가 사라지는 문제 방지.
+async function ensureSeeded() {
+  const snap = await get(ref(db, "members"));
+  if (snap.exists()) return;
+  const updates = {};
+  for (const m of memberList) {
+    updates[m.name] = { name: m.name, qt: m.qt, active: m.active };
+  }
+  if (Object.keys(updates).length) await update(ref(db, "members"), updates);
 }
 
 async function reloadMembersAndUi() {
