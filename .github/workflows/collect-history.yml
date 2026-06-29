@@ -1,0 +1,48 @@
+name: Collect Past Posts (history)
+
+# 과거 글(올해치)을 페이지를 거슬러 올라가며 수집. 수동 실행.
+on:
+  workflow_dispatch:
+    inputs:
+      probe:
+        description: "PROBE: 목록 구조/페이지네이션만 확인(저장 안 함)"
+        type: boolean
+        required: false
+        default: false
+      member:
+        description: "특정 멤버만 (비우면 전체 active)"
+        required: false
+        default: ""
+      cutoff:
+        description: "이 날짜 이후만 (YYYY.MM.DD, 비우면 올해 1/1)"
+        required: false
+        default: ""
+      page_param:
+        description: "페이지 파라미터명 (기본 page)"
+        required: false
+        default: "page"
+
+concurrency:
+  group: collect-history
+  cancel-in-progress: false
+
+jobs:
+  history:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        working-directory: scripts
+        run: npm install
+      - name: Collect history
+        working-directory: scripts
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          PROBE: ${{ inputs.probe && '1' || '' }}
+          MEMBER: ${{ inputs.member }}
+          CUTOFF: ${{ inputs.cutoff }}
+          PAGE_PARAM: ${{ inputs.page_param }}
+        run: npm run collect:history

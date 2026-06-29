@@ -3,7 +3,8 @@
 // 지난달 큐티 완주 현황을 집계하고 이메일로 발송합니다.
 import { initDb } from "./lib/firebase.js";
 import { sendMail } from "./lib/mailer.js";
-import { QT_TARGET_NAMES, extractQtDays } from "./lib/scrape.js";
+import { loadMembers } from "./lib/members.js";
+import { extractQtDays } from "./lib/scrape.js";
 
 async function main() {
   const db = initDb();
@@ -14,9 +15,10 @@ async function main() {
   const month = lastMonth.getMonth() + 1;
   const daysInMonth = new Date(year, month, 0).getDate();
 
+  const qtNames = (await loadMembers(db)).filter((m) => m.qt).map((m) => m.name);
   const reportData = [];
 
-  for (const name of QT_TARGET_NAMES) {
+  for (const name of qtNames) {
     const snap = await db.ref(`posts/${name}`).get();
     const uniqueDays = new Set();
 
