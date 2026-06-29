@@ -27,6 +27,7 @@ function catBadge(cat) {
 
 let postsByName = {}; // { name: [post, ...] }
 let loaded = false;
+let activeKey = "__dash"; // 현재 보고 있는 탭 (__dash 또는 멤버 이름)
 
 async function loadAllPosts(names) {
   const result = {};
@@ -107,10 +108,12 @@ function renderQtTable() {
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
   const daysInMonth = new Date(year, month, 0).getDate();
+  const dayToday = Math.min(now.getDate(), daysInMonth); // 오늘까지 경과 일수
 
   document.getElementById("qt-title").textContent =
     `📊 ${year}년 ${month}월 큐티 완주 현황`;
-  document.getElementById("qt-meta").textContent = `기준일수 ${daysInMonth}일`;
+  document.getElementById("qt-meta").textContent =
+    `달성률 = 월 전체 (괄호: ${month}/${dayToday}까지)`;
 
   const rows = QT_TARGET_NAMES.map((name) => {
     const posts = postsByName[name] || [];
@@ -121,19 +124,22 @@ function renderQtTable() {
       for (const d of extractQtDays(title, year, month, daysInMonth)) uniqueDays.add(d);
     }
     const count = uniqueDays.size;
-    return { name, count, rate: (count / daysInMonth) * 100 };
+    const rate = (count / daysInMonth) * 100;
+    const todayRate = dayToday > 0 ? Math.min((count / dayToday) * 100, 100) : 0;
+    return { name, count, rate, todayRate };
   });
   rows.sort((a, b) => (b.rate !== a.rate ? b.rate - a.rate : a.name.localeCompare(b.name, "ko")));
 
   let html = `<table class="qt-table"><thead><tr>
-      <th>순위</th><th>성함</th><th>큐티 횟수</th><th>달성률</th><th></th></tr></thead><tbody>`;
+      <th>순위</th><th>성함</th><th>큐티 횟수</th><th>달성률 (오늘까지)</th><th></th></tr></thead><tbody>`;
   rows.forEach((r, i) => {
     const color = rateColor(r.rate);
+    const todayColor = rateColor(r.todayRate);
     html += `<tr>
       <td class="rank">${i + 1}</td>
       <td class="name">${esc(r.name)}</td>
       <td>${r.count} / ${daysInMonth}</td>
-      <td style="color:${color}; font-weight:700;">${r.rate.toFixed(1)}%</td>
+      <td style="color:${color}; font-weight:700;">${r.rate.toFixed(1)}% <span class="rate-sub" style="color:${todayColor};">(${r.todayRate.toFixed(1)}%)</span></td>
       <td class="bar-cell"><div class="bar"><div class="bar-fill" style="width:${Math.min(r.rate, 100)}%; background:${color};"></div></div></td>
     </tr>`;
   });
@@ -254,6 +260,7 @@ function buildTabs() {
     btn.addEventListener("click", () => {
       nav.querySelectorAll(".side-item").forEach((b) => b.classList.toggle("active", b === btn));
       const key = btn.dataset.key;
+      activeKey = key;
       if (key === "__dash") {
         dashEl.hidden = false;
         memberEl.hidden = true;
@@ -280,6 +287,46 @@ function buildTabs() {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { closeModal(); setSidebar(false); }
   });
+
+  // 새로고침 버튼
+  const refreshBtn = document.getElementById("refresh-btn");
+  refreshBtn.addEventListener("click", async () => {
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = "불러오는 중…";
+    try {
+      await loadData();
+    } finally {
+      refreshBtn.disabled = false;
+      refreshBtn.textContent = "↻ 새로고침";
+    }
+  });
+}
+
+// 데이터를 다시 읽어 현재 화면을 갱신 (초기 로드 + 새로고침 공용)
+async function loadData() {
+  const notice = document.getElementById("notice");
+  notice.hidden = true;
+
+  const { result, firstError } = await loadAllPosts(TARGET_NAMES);
+  postsByName = result;
+
+  const total = Object.values(result).reduce((s, a) => s + a.length, 0);
+  if (firstError && total === 0) {
+    const msg = String((firstError && firstError.message) || firstError);
+    if (/permission|denied/i.test(msg)) {
+      showNotice(
+        "⚠️ 데이터 읽기 권한이 없습니다. <b>Realtime Database → 규칙</b>에서 " +
+        "<code>posts</code>·<code>users</code> 의 <code>.read</code> 를 " +
+        "<code>\"auth != null\"</code> 로 설정해 게시하세요."
+      );
+    } else {
+      showNotice("⚠️ 데이터를 불러오지 못했습니다: " + esc(msg));
+    }
+  }
+
+  renderQtTable();
+  renderFeed();
+  if (activeKey !== "__dash") renderMember(activeKey);
 }
 
 /** 로그인 성공 후 1회 호출. */
@@ -287,26 +334,8 @@ export async function initDashboard() {
   if (loaded) return;
   loaded = true;
   try {
-    const { result, firstError } = await loadAllPosts(TARGET_NAMES);
-    postsByName = result;
-
-    const total = Object.values(result).reduce((s, a) => s + a.length, 0);
-    if (firstError && total === 0) {
-      const msg = String((firstError && firstError.message) || firstError);
-      if (/permission|denied/i.test(msg)) {
-        showNotice(
-          "⚠️ 데이터 읽기 권한이 없습니다. <b>Realtime Database → 규칙</b>에서 " +
-          "<code>posts</code>·<code>users</code> 의 <code>.read</code> 를 " +
-          "<code>\"auth != null\"</code> 로 설정해 게시하세요."
-        );
-      } else {
-        showNotice("⚠️ 데이터를 불러오지 못했습니다: " + esc(msg));
-      }
-    }
-
     buildTabs();
-    renderQtTable();
-    renderFeed();
+    await loadData();
   } catch (e) {
     loaded = false;
     showNotice("⚠️ 초기화 오류: " + esc(e.message));
