@@ -77,17 +77,20 @@ async function main() {
     }
   }
 
+  // 이메일은 SEND_EMAIL=1 일 때만 발송. (기본: 수집만 하고, 일일 요약은 digest 가 담당)
   if (totalNew > 0) {
-    await sendMail({
-      subject: `📅 신규 게시물 수집 알림 (${totalNew}건)`,
-      html:
-        `<div style="font-family:sans-serif; padding:10px;">` +
-        `<h2 style="color:#333;">📅 신규 게시물 수집 결과</h2>` +
-        `<p style="color:#666;">오늘 수집되어 기록된 게시물 목록입니다.</p><br>` +
-        emailBody +
-        `</div>`,
-    });
-    console.log(`총 ${totalNew}건 수집 완료`);
+    if (process.env.SEND_EMAIL === "1") {
+      await sendMail({
+        subject: `📅 신규 게시물 수집 알림 (${totalNew}건)`,
+        html:
+          `<div style="font-family:sans-serif; padding:10px;">` +
+          `<h2 style="color:#333;">📅 신규 게시물 수집 결과</h2>` +
+          `<p style="color:#666;">수집되어 기록된 게시물 목록입니다.</p><br>` +
+          emailBody +
+          `</div>`,
+      });
+    }
+    console.log(`총 ${totalNew}건 수집 완료${process.env.SEND_EMAIL === "1" ? " (이메일 발송)" : ""}`);
   } else {
     console.log("새로 수집된 게시물이 없습니다.");
   }

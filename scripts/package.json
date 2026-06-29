@@ -6,6 +6,7 @@
   "description": "GitHub Actions 스케줄 작업 (일일 수집 / 월간 큐티 리포트)",
   "scripts": {
     "collect:daily": "node collect-daily.js",
+    "digest:daily": "node digest-daily.js",
     "report:monthly": "node report-monthly.js",
     "migrate:sheets": "node migrate-sheets.js",
     "backfill:content": "node backfill-content.js"

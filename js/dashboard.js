@@ -287,19 +287,6 @@ function buildTabs() {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { closeModal(); setSidebar(false); }
   });
-
-  // 새로고침 버튼
-  const refreshBtn = document.getElementById("refresh-btn");
-  refreshBtn.addEventListener("click", async () => {
-    refreshBtn.disabled = true;
-    refreshBtn.textContent = "불러오는 중…";
-    try {
-      await loadData();
-    } finally {
-      refreshBtn.disabled = false;
-      refreshBtn.textContent = "↻ 새로고침";
-    }
-  });
 }
 
 // 데이터를 다시 읽어 현재 화면을 갱신 (초기 로드 + 새로고침 공용)
