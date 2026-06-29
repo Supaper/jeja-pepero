@@ -14,7 +14,8 @@ index.html / css/style.css        로그인 + 대시보드 화면, 스타일
 js/firebase-config.js             Firebase 초기화 (auth, db)
 js/auth.js                        Google 로그인 + /users 허용 명단 검증
 js/config.js                      대시보드 공용 상수/큐티 날짜 파싱·색상
-js/dashboard.js                   대시보드/멤버 탭/멤버 관리 렌더링
+js/assignments.js                 제자반 주별 과제 정의(생활간증·독서·기타)
+js/dashboard.js                   대시보드/멤버 탭/멤버 관리/과제 현황 렌더링
 js/app.js                         화면 전환 게이트
 scripts/                          GitHub Actions 작업 (Node)
   lib/scrape.js                   게시판 스크래핑 / 큐티 날짜 파싱
@@ -60,14 +61,16 @@ scripts/                          GitHub Actions 작업 (Node)
    ```json
    {
      "rules": {
-       "users":   { ".read": "auth != null", ".write": "auth.token.admin === true", ".indexOn": ["email"] },
-       "members": { ".read": "auth != null", ".write": "auth.token.admin === true" },
-       "posts":   { ".read": "auth != null", ".write": false },
-       "state":   { ".read": false, ".write": false }
+       "users":       { ".read": "auth != null", ".write": "auth.token.admin === true", ".indexOn": ["email"] },
+       "members":     { ".read": "auth != null", ".write": "auth.token.admin === true" },
+       "posts":       { ".read": "auth != null", ".write": false },
+       "assignments": { ".read": "auth != null", ".write": "auth != null" },
+       "state":       { ".read": false, ".write": false }
      }
    }
    ```
-   (서버 작업은 서비스 계정으로 쓰므로 규칙과 무관하게 write 가능)
+   (서버 작업은 서비스 계정으로 쓰므로 규칙과 무관하게 write 가능 ·
+   `assignments`=과제 체크 현황, 로그인 멤버가 직접 체크하도록 `auth != null` write)
 
 ## 멤버 관리 (관리자)
 
@@ -78,6 +81,16 @@ scripts/                          GitHub Actions 작업 (Node)
   `set-admin`**(이메일 입력) → 재로그인하면 사이드바에 "⚙️ 멤버 관리" 표시.
 - **명단 시드(선택)**: Admin Tools → `seed-members` (기본 명단을 `/members`에 기록).
 - 멤버 추가 후 그 사람의 **과거 글**까지 채우려면 → 아래 "과거 글 수집".
+
+## 과제 현황 (제자반 주별 과제)
+
+대시보드의 **📝 과제 완주 현황** 카드에서 멤버별 과제 완료 여부를 체크합니다.
+과제 목록(개강 전 / 1학기 / 방학 / 2학기·종강의 생활간증·독서·기타)은
+[`js/assignments.js`](./js/assignments.js) 에 정의되어 있어 **이 파일만 고치면** 됩니다.
+
+- 멤버 행을 클릭하면 펼쳐지며, 체크박스로 **생활간증·독서·기타 과제**를 개별 체크.
+- 완주율은 **마감이 도래한 과제** 기준(괄호는 전체 기준), 마감 지난 미완료는 빨갛게 표시.
+- 저장 위치: `assignments/<이름>/<과제ID> = true` (로그인한 멤버 누구나 체크 가능).
 
 ## 자동 수집/보고 (GitHub Actions)
 
