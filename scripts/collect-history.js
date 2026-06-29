@@ -32,11 +32,31 @@ async function probe(name) {
   if (posts.length) {
     console.log(`  날짜범위: ${posts[posts.length - 1].date} ~ ${posts[0].date}`);
   }
-  const hrefs = [...html.matchAll(/href="([^"]*Mode=list[^"]*)"/g)]
-    .map((m) => m[1].replace(/&amp;/g, "&"));
-  const uniq = [...new Set(hrefs)].slice(0, 30);
-  console.log("  페이지네이션 후보 링크(Mode=list 포함):");
-  uniq.forEach((h) => console.log("   ", h));
+
+  // 1) 페이지 파라미터 후보가 HTML 본문에 등장하는지
+  const paramCandidates = ["page", "pageNo", "curPage", "startPage", "nowPage", "pageNum", "offset", "startNum", "p"];
+  const found = paramCandidates.filter((p) => new RegExp("[?&]" + p + "=", "i").test(html));
+  console.log("  본문에 등장하는 page 파라미터 후보:", found.length ? found.join(", ") : "(없음)");
+
+  // 2) 페이지네이션 영역으로 보이는 곳의 anchor href/onclick 덤프
+  const anchors = [...html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)];
+  const hits = [];
+  for (const a of anchors) {
+    const attrs = a[1];
+    const text = a[2].replace(/<[^>]+>/g, "").trim();
+    const href = (attrs.match(/href="([^"]*)"/) || [])[1] || "";
+    const onclick = (attrs.match(/onclick="([^"]*)"/) || [])[1] || "";
+    const blob = (href + " " + onclick).replace(/&amp;/g, "&");
+    if (/page|list|go|p=|\bp\b|paging|next|다음/i.test(blob) || /^\d{1,3}$/.test(text)) {
+      hits.push(`text="${text}" href="${href}" onclick="${onclick}"`);
+    }
+  }
+  console.log("  페이지네이션 의심 앵커(상위 25개):");
+  [...new Set(hits)].slice(0, 25).forEach((h) => console.log("   ", h));
+
+  // 3) "다음"/페이징 관련 스크립트 함수 흔적
+  const fns = [...html.matchAll(/(go\w*Page\w*|fn\w*[Pp]age\w*|paging\w*|goList)\s*\(/g)].map((m) => m[1]);
+  console.log("  페이징 관련 함수 흔적:", [...new Set(fns)].slice(0, 10).join(", ") || "(없음)");
 }
 
 async function collectMember(db, name, checkedAt) {
