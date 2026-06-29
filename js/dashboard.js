@@ -15,6 +15,12 @@ import {
   isNotice,
   postNum,
 } from "./config.js";
+import {
+  ASSIGNMENT_GROUPS,
+  ALL_ASSIGNMENTS,
+  ASSIGNMENT_IDS,
+  assignKindColor,
+} from "./assignments.js";
 
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => (
@@ -28,6 +34,7 @@ function catBadge(cat) {
 }
 
 let postsByName = {}; // { name: [post, ...] }
+let assignStatus = {}; // { name: { assignmentId: true } }
 let loaded = false;
 let activeKey = "__dash"; // 현재 보고 있는 탭 (__dash / __admin / 멤버 이름)
 let isAdmin = false;
@@ -340,6 +347,131 @@ function closeWeekModal() {
   if (document.getElementById("post-modal").hidden) document.body.style.overflow = "";
 }
 
+/* ===================== 과제 완주 현황 ===================== */
+function todayISO() {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
+}
+
+function assignKindBadge(kind) {
+  const [bg, fg] = assignKindColor(kind);
+  return `<span class="assign-kind" style="background:${bg}; color:${fg};">${esc(kind)}</span>`;
+}
+
+function assignChecklistHtml(name, today) {
+  const st = assignStatus[name] || {};
+  return ASSIGNMENT_GROUPS.map((g) => {
+    const items = g.items.map((it) => {
+      const done = !!st[it.id];
+      const overdue = !done && it.due < today;
+      const dueLabel = it.due.slice(5).replace("-", "/");
+      return `<label class="assign-item${overdue ? " overdue" : ""}">
+        <input type="checkbox" class="assign-check" data-name="${esc(name)}" data-id="${esc(it.id)}" data-due="${it.due}" ${done ? "checked" : ""} />
+        ${assignKindBadge(it.kind)}
+        <span class="assign-text">${esc(it.title)}</span>
+        <span class="assign-due">~${dueLabel}</span>
+      </label>`;
+    }).join("");
+    return `<div class="assign-group"><div class="assign-group-h">${esc(g.label)}</div>${items}</div>`;
+  }).join("");
+}
+
+function assignCounts(name, today) {
+  const st = assignStatus[name] || {};
+  let done = 0, doneDue = 0;
+  for (const it of ALL_ASSIGNMENTS) {
+    if (st[it.id]) { done++; if (it.due <= today) doneDue++; }
+  }
+  return { done, doneDue };
+}
+
+function updateAssignRow(name, today) {
+  const wrap = document.getElementById("assign-table-wrap");
+  const dueSoFar = ALL_ASSIGNMENTS.filter((it) => it.due <= today).length;
+  const total = ALL_ASSIGNMENTS.length;
+  const { done, doneDue } = assignCounts(name, today);
+  const rate = dueSoFar > 0 ? (doneDue / dueSoFar) * 100 : 0;
+  const totalRate = total > 0 ? (done / total) * 100 : 0;
+  for (const tr of wrap.querySelectorAll(".assign-row")) {
+    if (tr.dataset.name !== name) continue;
+    const doneCell = tr.querySelector(".assign-done");
+    const rateCell = tr.querySelector(".assign-rate");
+    if (doneCell) doneCell.textContent = `${doneDue} / ${dueSoFar}`;
+    if (rateCell) {
+      rateCell.style.color = rateColor(rate);
+      rateCell.innerHTML = `${rate.toFixed(0)}% <span class="rate-sub">(${totalRate.toFixed(0)}%)</span>`;
+    }
+    break;
+  }
+}
+
+async function onToggleAssign(cb, today) {
+  const name = cb.dataset.name, id = cb.dataset.id, want = cb.checked;
+  try {
+    await set(ref(db, `assignments/${name}/${id}`), want ? true : null);
+    if (!assignStatus[name]) assignStatus[name] = {};
+    if (want) assignStatus[name][id] = true; else delete assignStatus[name][id];
+    updateAssignRow(name, today);
+    const label = cb.closest(".assign-item");
+    if (label) label.classList.toggle("overdue", !want && cb.dataset.due < today);
+  } catch (e) {
+    cb.checked = !want;
+    alert("저장 실패: " + (e.message || e) + "\n(RTDB 규칙에 assignments write 권한이 필요합니다)");
+  }
+}
+
+function renderAssignTable() {
+  const wrap = document.getElementById("assign-table-wrap");
+  if (!wrap) return;
+  const today = todayISO();
+  const total = ALL_ASSIGNMENTS.length;
+  const dueSoFar = ALL_ASSIGNMENTS.filter((it) => it.due <= today).length;
+  document.getElementById("assign-meta").textContent =
+    `완주율 = 마감 도래(${dueSoFar}건) 기준 · 괄호: 전체 ${total}건`;
+
+  if (!memberNames.length) {
+    wrap.innerHTML = `<p class="muted">표시할 멤버가 없습니다.</p>`;
+    return;
+  }
+
+  const rows = memberNames.map((name) => {
+    const { done, doneDue } = assignCounts(name, today);
+    const rate = dueSoFar > 0 ? (doneDue / dueSoFar) * 100 : 0;
+    const totalRate = total > 0 ? (done / total) * 100 : 0;
+    return { name, doneDue, rate, totalRate };
+  });
+  rows.sort((a, b) => (b.rate !== a.rate ? b.rate - a.rate : a.name.localeCompare(b.name, "ko")));
+
+  let html = `<table class="qt-table"><thead><tr>
+      <th class="caret-cell"></th><th>순위</th><th>성함</th><th>완료(마감도래)</th><th>완주율 (전체)</th></tr></thead><tbody>`;
+  rows.forEach((r, i) => {
+    const color = rateColor(r.rate);
+    html += `<tr class="qt-row assign-row" data-name="${esc(r.name)}" title="클릭하면 과제 체크">
+      <td class="caret-cell"><span class="caret">▸</span></td>
+      <td class="rank">${i + 1}</td>
+      <td class="name">${esc(r.name)}</td>
+      <td class="assign-done">${r.doneDue} / ${dueSoFar}</td>
+      <td class="assign-rate" style="color:${color}; font-weight:700;">${r.rate.toFixed(0)}% <span class="rate-sub">(${r.totalRate.toFixed(0)}%)</span></td>
+    </tr>
+    <tr class="qt-detail" hidden><td colspan="5">${assignChecklistHtml(r.name, today)}</td></tr>`;
+  });
+  html += `</tbody></table>`;
+  wrap.innerHTML = html;
+
+  wrap.querySelectorAll(".assign-row").forEach((tr) => {
+    tr.addEventListener("click", () => {
+      const detail = tr.nextElementSibling;
+      if (!detail || !detail.classList.contains("qt-detail")) return;
+      const open = detail.hidden;
+      detail.hidden = !open;
+      tr.classList.toggle("expanded", open);
+    });
+  });
+  wrap.querySelectorAll(".assign-check").forEach((cb) => {
+    cb.addEventListener("change", () => onToggleAssign(cb, today));
+  });
+}
+
 let feedList = [];
 function renderFeed() {
   feedList = [];
@@ -576,6 +708,7 @@ async function reloadMembersAndUi() {
   qtNames = memberList.filter((m) => m.qt).map((m) => m.name);
   buildTabs();
   renderQtTable();
+  renderAssignTable();
   if (activeKey === "__admin") renderAdmin();
 }
 
@@ -589,6 +722,11 @@ async function loadData() {
 
   const { result, firstError } = await loadAllPosts(memberNames);
   postsByName = result;
+
+  try {
+    const aSnap = await get(ref(db, "assignments"));
+    assignStatus = aSnap.exists() ? aSnap.val() : {};
+  } catch (_) { assignStatus = {}; }
 
   const total = Object.values(result).reduce((s, a) => s + a.length, 0);
   if (firstError && total === 0) {
@@ -606,6 +744,7 @@ async function loadData() {
 
   buildTabs();
   renderQtTable();
+  renderAssignTable();
   renderFeed();
   if (activeKey === "__admin") renderAdmin();
   else if (activeKey !== "__dash") renderMember(activeKey);
