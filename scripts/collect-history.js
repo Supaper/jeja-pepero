@@ -10,7 +10,7 @@
 //   MAX_PAGES=60   안전 상한
 import { initDb } from "./lib/firebase.js";
 import { loadMembers } from "./lib/members.js";
-import { fetchListHtml, parseList, fetchPostContent } from "./lib/scrape.js";
+import { fetchListHtml, parseList, fetchPostContent, postNum } from "./lib/scrape.js";
 
 const PROBE = process.env.PROBE === "1";
 const PAGE_PARAM = process.env.PAGE_PARAM || "page";
@@ -32,19 +32,50 @@ async function probe(name) {
   if (posts.length) {
     console.log(`  날짜범위: ${posts[posts.length - 1].date} ~ ${posts[0].date}`);
   }
-  const hrefs = [...html.matchAll(/href="([^"]*Mode=list[^"]*)"/g)]
-    .map((m) => m[1].replace(/&amp;/g, "&"));
-  const uniq = [...new Set(hrefs)].slice(0, 30);
-  console.log("  페이지네이션 후보 링크(Mode=list 포함):");
-  uniq.forEach((h) => console.log("   ", h));
+
+  // 1) 페이지 파라미터 후보가 HTML 본문에 등장하는지
+  const paramCandidates = ["page", "pageNo", "curPage", "startPage", "nowPage", "pageNum", "offset", "startNum", "p"];
+  const found = paramCandidates.filter((p) => new RegExp("[?&]" + p + "=", "i").test(html));
+  console.log("  본문에 등장하는 page 파라미터 후보:", found.length ? found.join(", ") : "(없음)");
+
+  // 2) 페이지네이션 영역으로 보이는 곳의 anchor href/onclick 덤프
+  const anchors = [...html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)];
+  const hits = [];
+  for (const a of anchors) {
+    const attrs = a[1];
+    const text = a[2].replace(/<[^>]+>/g, "").trim();
+    const href = (attrs.match(/href="([^"]*)"/) || [])[1] || "";
+    const onclick = (attrs.match(/onclick="([^"]*)"/) || [])[1] || "";
+    const blob = (href + " " + onclick).replace(/&amp;/g, "&");
+    if (/page|list|go|p=|\bp\b|paging|next|다음/i.test(blob) || /^\d{1,3}$/.test(text)) {
+      hits.push(`text="${text}" href="${href}" onclick="${onclick}"`);
+    }
+  }
+  console.log("  페이지네이션 의심 앵커(상위 25개):");
+  [...new Set(hits)].slice(0, 25).forEach((h) => console.log("   ", h));
+
+  // 3) "다음"/페이징 관련 스크립트 함수 흔적
+  const fns = [...html.matchAll(/(go\w*Page\w*|fn\w*[Pp]age\w*|paging\w*|goList)\s*\(/g)].map((m) => m[1]);
+  console.log("  페이징 관련 함수 흔적:", [...new Set(fns)].slice(0, 10).join(", ") || "(없음)");
+
+  // 4) page 파라미터로 실제 페이지가 넘어가는지 2~3페이지 날짜범위 비교
+  for (const pg of [2, 3]) {
+    const h = await fetchListHtml(name, pg, PAGE_PARAM);
+    const { posts: ps, firstTitle: ft } = parseList(h);
+    const range = ps.length ? `${ps[ps.length - 1].date} ~ ${ps[0].date}` : "(글 없음)";
+    console.log(`  [page=${pg}] 글 ${ps.length}건, 범위 ${range}, firstTitle="${ft}"`);
+  }
 }
 
 async function collectMember(db, name, checkedAt) {
   const postsRef = db.ref(`posts/${name}`);
   const existingSnap = await postsRef.get();
-  const existingLinks = new Set();
+  const existingNums = new Set(); // 글 고유번호(num) 기준 중복 판정
   if (existingSnap.exists()) {
-    for (const v of Object.values(existingSnap.val())) if (v && v.link) existingLinks.add(v.link);
+    for (const v of Object.values(existingSnap.val())) {
+      const n = postNum(v && v.link);
+      if (n) existingNums.add(n);
+    }
   }
 
   let added = 0;
@@ -68,11 +99,12 @@ async function collectMember(db, name, checkedAt) {
     let stop = false;
     for (const p of posts) {
       if (p.date < CUTOFF) { stop = true; break; } // 더 과거 → 중단(최신순 가정)
-      if (existingLinks.has(p.link)) continue;
+      const num = postNum(p.link);
+      if (num && existingNums.has(num)) continue;
       let content = "";
       try { content = await fetchPostContent(p.link); } catch (_) {}
       await postsRef.push({ collectedAt: checkedAt, postDate: p.date, title: p.title, link: p.link, content });
-      existingLinks.add(p.link);
+      if (num) existingNums.add(num);
       added++;
       await sleep(400);
     }

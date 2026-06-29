@@ -84,6 +84,12 @@ export async function fetchPosts(name) {
   return parseList(await fetchListHtml(name, 1));
 }
 
+// 링크에서 글 고유번호(num) 추출 — 중복 판정 키(파라미터 순서/형식 차이에 강건).
+export function postNum(link) {
+  const m = String(link || "").match(/[?&]num=(\d+)/);
+  return m ? m[1] : "";
+}
+
 /**
  * 제목 문자열에서 해당 연/월에 속하는 '일(day)' 들을 추출 (중복 가능, 호출측에서 Set 처리).
  * 지원 형식: YYMMDD / 20YYMMDD / MMDD / M월DD / M.DD / M/DD 등 (기존 스크립트 정규식 이식)

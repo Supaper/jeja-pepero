@@ -12,7 +12,8 @@
     "migrate:sheets": "node migrate-sheets.js",
     "backfill:content": "node backfill-content.js",
     "seed:members": "node seed-members.js",
-    "set:admin": "node set-admin.js"
+    "set:admin": "node set-admin.js",
+    "dedupe:posts": "node dedupe-posts.js"
   },
   "engines": {
     "node": ">=20"
