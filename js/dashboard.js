@@ -107,7 +107,8 @@ function openPostModal(post) {
 
 function closeModal() {
   document.getElementById("post-modal").hidden = true;
-  document.body.style.overflow = "";
+  // 주차 목록 모달이 아직 열려 있으면 스크롤 잠금 유지
+  if (document.getElementById("week-modal").hidden) document.body.style.overflow = "";
 }
 
 // 클릭 시 모달을 여는 글 링크 HTML (data-key 로 위치 식별)
@@ -177,21 +178,52 @@ function buildWeeks(year, month, daysInMonth) {
   return weeks;
 }
 
-function weeklyBreakdownHtml(year, month, daysInMonth, daySet) {
+// 한 멤버의 선택한 달 '큐티나눔' 글과 각 글의 큐티 날짜 추출.
+function memberQtData(name, year, month, daysInMonth) {
+  const items = []; // { post, days: [d,...] }
+  const uniqueDays = new Set();
+  for (const p of postsByName[name] || []) {
+    const title = (p && p.title) || "";
+    if (title.replace(/\s+/g, "").indexOf("큐티나눔") === -1) continue;
+    const days = [...new Set(extractQtDays(title, year, month, daysInMonth))];
+    if (!days.length) continue;
+    for (const d of days) uniqueDays.add(d);
+    items.push({ post: { ...p, name, category: categorize(title) }, days });
+  }
+  return { items, uniqueDays };
+}
+
+// 주차별 클릭 시 보여줄 글 목록 저장소 ("이름|주차" → [post, ...])
+let weekPostIndex = {};
+
+function weeklyBreakdownHtml(name, year, month, daysInMonth, qtData) {
   const weeks = buildWeeks(year, month, daysInMonth);
-  for (const d of daySet) {
-    const w = weeks.find((w) => d >= w.start && d <= w.end);
-    if (w) w.count++;
+  for (const w of weeks) {
+    const daysInWeek = new Set();
+    const posts = [];
+    const seen = new Set();
+    for (const it of qtData.items) {
+      if (!it.days.some((d) => d >= w.start && d <= w.end)) continue;
+      for (const d of it.days) if (d >= w.start && d <= w.end) daysInWeek.add(d);
+      const key = it.post.link || it.post.title;
+      if (!seen.has(key)) { seen.add(key); posts.push(it.post); }
+    }
+    w.count = daysInWeek.size;
+    weekPostIndex[`${name}|${w.idx}`] = posts;
   }
   return (
     `<div class="week-grid">` +
     weeks
-      .map(
-        (w) => `<div class="week-item">
+      .map((w) => {
+        const clickable = w.count > 0;
+        const attrs = clickable
+          ? ` data-name="${esc(name)}" data-week="${w.idx}" role="button" tabindex="0"`
+          : "";
+        return `<div class="week-item">
           <span class="week-label">${month}월 ${w.idx}주차 <span class="week-range">(${month}월${w.start}일~${month}월${w.end}일)</span></span>
-          <span class="week-count${w.count ? "" : " zero"}">${w.count}회</span>
-        </div>`
-      )
+          <span class="week-count${w.count ? "" : " zero"}${clickable ? " clickable" : ""}"${attrs}>${w.count}회</span>
+        </div>`;
+      })
       .join("") +
     `</div>`
   );
@@ -210,18 +242,13 @@ function renderQtTable() {
   document.getElementById("qt-meta").textContent =
     isCurrentMonth ? `달성률 = 월 전체 (괄호: ${month}/${dayToday}까지)` : `달성률 = 월 전체`;
 
+  weekPostIndex = {};
   const rows = qtNames.map((name) => {
-    const posts = postsByName[name] || [];
-    const uniqueDays = new Set();
-    for (const p of posts) {
-      const title = (p && p.title) || "";
-      if (title.replace(/\s+/g, "").indexOf("큐티나눔") === -1) continue;
-      for (const d of extractQtDays(title, year, month, daysInMonth)) uniqueDays.add(d);
-    }
-    const count = uniqueDays.size;
+    const qtData = memberQtData(name, year, month, daysInMonth);
+    const count = qtData.uniqueDays.size;
     const rate = (count / daysInMonth) * 100;
     const todayRate = dayToday > 0 ? Math.min((count / dayToday) * 100, 100) : 0;
-    return { name, count, rate, todayRate, days: uniqueDays };
+    return { name, count, rate, todayRate, qtData };
   });
   rows.sort((a, b) => (b.rate !== a.rate ? b.rate - a.rate : a.name.localeCompare(b.name, "ko")));
 
@@ -241,7 +268,7 @@ function renderQtTable() {
       <td style="color:${color}; font-weight:700;">${r.rate.toFixed(1)}%${sub}</td>
       <td class="bar-cell"><div class="bar"><div class="bar-fill" style="width:${Math.min(r.rate, 100)}%; background:${color};"></div></div></td>
     </tr>
-    <tr class="qt-detail" hidden><td colspan="6">${weeklyBreakdownHtml(year, month, daysInMonth, r.days)}</td></tr>`;
+    <tr class="qt-detail" hidden><td colspan="6">${weeklyBreakdownHtml(r.name, year, month, daysInMonth, r.qtData)}</td></tr>`;
   });
   html += `</tbody></table>`;
   const wrap = document.getElementById("qt-table-wrap");
@@ -256,6 +283,45 @@ function renderQtTable() {
       tr.classList.toggle("expanded", open);
     });
   });
+
+  wrap.querySelectorAll(".week-count.clickable").forEach((el) => {
+    const open = () => openWeekModal(el.dataset.name, Number(el.dataset.week));
+    el.addEventListener("click", open);
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); }
+    });
+  });
+}
+
+/* ===================== 주차별 글 목록 모달 ===================== */
+function openWeekModal(name, weekIdx) {
+  const posts = weekPostIndex[`${name}|${weekIdx}`] || [];
+  const [, month] = selectedYM.split("-").map(Number);
+  document.getElementById("week-modal-title").textContent =
+    `${name} · ${month}월 ${weekIdx}주차 큐티 글`;
+  document.getElementById("week-modal-meta").textContent = `${posts.length}건`;
+
+  const body = document.getElementById("week-modal-body");
+  if (!posts.length) {
+    body.innerHTML = `<p class="muted" style="padding:8px 0;">표시할 글이 없습니다.</p>`;
+  } else {
+    body.innerHTML =
+      `<ul class="post-list">` +
+      posts.map((p, i) => `<li>
+          <span class="post-date">${esc(p.postDate || "")}</span>
+          ${catBadge(p.category || categorize(p.title))}
+          ${postLinkHtml("week", i, p.title)}
+        </li>`).join("") +
+      `</ul>`;
+    wirePostClicks(body, posts);
+  }
+  document.getElementById("week-modal").hidden = false;
+  document.body.style.overflow = "hidden";
+}
+
+function closeWeekModal() {
+  document.getElementById("week-modal").hidden = true;
+  if (document.getElementById("post-modal").hidden) document.body.style.overflow = "";
 }
 
 let feedList = [];
@@ -396,8 +462,16 @@ function wireChrome() {
   document.getElementById("post-modal").addEventListener("click", (e) => {
     if (e.target.id === "post-modal") closeModal();
   });
+  document.getElementById("week-modal-close").addEventListener("click", closeWeekModal);
+  document.getElementById("week-modal").addEventListener("click", (e) => {
+    if (e.target.id === "week-modal") closeWeekModal();
+  });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { closeModal(); setSidebar(false); }
+    if (e.key !== "Escape") return;
+    // 위에 떠 있는 모달부터 닫기
+    if (!document.getElementById("post-modal").hidden) { closeModal(); return; }
+    if (!document.getElementById("week-modal").hidden) { closeWeekModal(); return; }
+    setSidebar(false);
   });
 }
 
