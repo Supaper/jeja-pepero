@@ -99,7 +99,7 @@ function readingItems(rows, prefix) {
   }));
 }
 
-export const ASSIGNMENT_GROUPS = [
+const DISCIPLE11_GROUPS = [
   {
     label: "개강 전",
     items: [
@@ -139,11 +139,22 @@ export const ASSIGNMENT_GROUPS = [
   },
 ];
 
-// 전체 과제 평탄화
-export const ALL_ASSIGNMENTS = ASSIGNMENT_GROUPS.flatMap((g) =>
-  g.items.map((it) => ({ ...it, group: g.label }))
-);
-export const ASSIGNMENT_IDS = new Set(ALL_ASSIGNMENTS.map((it) => it.id));
+// ===== 훈련과정(코스) 레지스트리 =====
+// 새 과정을 추가하려면 위와 같은 방식으로 그룹을 만들어 아래 배열에 한 줄 추가하세요.
+// id 는 RTDB members/<이름>/course 에 저장되는 값이므로 바꾸지 마세요(영문/숫자 권장).
+export const COURSES = [
+  { id: "disciple11", label: "제자반 11기 (주일반)", groups: DISCIPLE11_GROUPS },
+];
+
+export function findCourse(id) {
+  return COURSES.find((c) => c.id === id) || null;
+}
+
+// 한 과정의 모든 과제를 평탄화 (group 라벨 포함)
+export function courseAssignments(course) {
+  if (!course) return [];
+  return course.groups.flatMap((g) => g.items.map((it) => ({ ...it, group: g.label })));
+}
 
 // 과제 종류 → [배경, 글자] 색
 export function assignKindColor(kind) {

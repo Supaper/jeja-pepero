@@ -296,6 +296,26 @@ html, body {
 .assign-item.overdue .assign-due { color: #d93025; font-weight: 700; }
 .assign-row .assign-done { white-space: nowrap; }
 
+/* 과정별 섹션 */
+.assign-course { margin-bottom: 18px; }
+.assign-course:last-child { margin-bottom: 0; }
+.assign-course-h {
+  margin: 0 0 8px;
+  font-size: 15px;
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+}
+.assign-course-h .card-meta { font-weight: 400; }
+
+/* 멤버 관리 과정 드롭다운 */
+.course-select {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
 /* 자동 완료(수집 글 매칭) 항목 */
 .assign-box {
   flex: none;

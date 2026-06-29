@@ -16,9 +16,9 @@ import {
   postNum,
 } from "./config.js";
 import {
-  ASSIGNMENT_GROUPS,
-  ALL_ASSIGNMENTS,
-  ASSIGNMENT_IDS,
+  COURSES,
+  findCourse,
+  courseAssignments,
   assignKindColor,
 } from "./assignments.js";
 
@@ -38,7 +38,7 @@ let assignStatus = {}; // { name: { assignmentId: true } }
 let loaded = false;
 let activeKey = "__dash"; // 현재 보고 있는 탭 (__dash / __admin / 멤버 이름)
 let isAdmin = false;
-let memberList = []; // [{name, qt, active}] 전체
+let memberList = []; // [{name, qt, active, course}] 전체
 let memberNames = []; // 수집/표시 대상 (active)
 let qtNames = []; // 큐티 집계 대상 (qt)
 
@@ -48,18 +48,30 @@ async function loadMemberList() {
     const snap = await get(ref(db, "members"));
     if (snap.exists()) {
       const val = snap.val();
+      const defCourse = COURSES[0] ? COURSES[0].id : "";
       const list = Object.entries(val)
-        .map(([key, m]) => ({
-          name: (m && m.name) || key,
-          qt: !(m && m.qt === false),
-          active: !(m && m.active === false),
-        }))
+        .map(([key, m]) => {
+          const qt = !(m && m.qt === false);
+          return {
+            name: (m && m.name) || key,
+            qt,
+            active: !(m && m.active === false),
+            // course 미지정 시: 큐티 대상은 기본 과정, 그 외(예: 다른 기수)는 미배정
+            course: (m && typeof m.course === "string") ? m.course : (qt ? defCourse : ""),
+          };
+        })
         .filter((m) => m.name)
         .sort((a, b) => a.name.localeCompare(b.name, "ko"));
       if (list.length) return list;
     }
   } catch (_) { /* 폴백 */ }
-  return TARGET_NAMES.map((n) => ({ name: n, qt: QT_TARGET_NAMES.includes(n), active: true }));
+  const defCourse = COURSES[0] ? COURSES[0].id : "";
+  return TARGET_NAMES.map((n) => ({
+    name: n,
+    qt: QT_TARGET_NAMES.includes(n),
+    active: true,
+    course: QT_TARGET_NAMES.includes(n) ? defCourse : "",
+  }));
 }
 
 // 공지글 제거 + 게시글 번호(num) 기준 중복 제거(본문 있는 항목 우선).
@@ -364,22 +376,31 @@ function normTitle(s) {
     .toLowerCase();
 }
 
-// 멤버별 [훈련나눔] 글 제목을 과제 키워드(m/x)로 매칭 → autoAssign 구성
-function buildAutoAssign(names) {
+// 멤버의 [훈련나눔] 글 목록(정규화 포함)
+function trainingPosts(name) {
+  return (postsByName[name] || [])
+    .filter((p) => p && p.title && categorize(p.title) === "훈련나눔")
+    .map((p) => ({ post: { ...p, name, category: "훈련나눔" }, n: normTitle(p.title) }));
+}
+
+// 과정별 섹션({course, names})을 받아 멤버별 자동 매칭(autoAssign) 구성.
+// 멤버는 자기 과정의 과제에 대해서만 매칭됩니다.
+function buildAutoAssign(sections) {
   autoAssign = {};
-  for (const name of names) {
-    const tps = (postsByName[name] || [])
-      .filter((p) => p && p.title && categorize(p.title) === "훈련나눔")
-      .map((p) => ({ post: { ...p, name, category: "훈련나눔" }, n: normTitle(p.title) }));
-    const map = {};
-    for (const it of ALL_ASSIGNMENTS) {
-      if (!it.m || !it.m.length) continue;
-      for (const tp of tps) {
-        if (it.x && it.x.some((xk) => tp.n.includes(xk))) continue;
-        if (it.m.some((k) => tp.n.includes(k))) { map[it.id] = tp.post; break; }
+  for (const { course, names } of sections) {
+    const all = courseAssignments(course);
+    for (const name of names) {
+      const tps = trainingPosts(name);
+      const map = {};
+      for (const it of all) {
+        if (!it.m || !it.m.length) continue;
+        for (const tp of tps) {
+          if (it.x && it.x.some((xk) => tp.n.includes(xk))) continue;
+          if (it.m.some((k) => tp.n.includes(k))) { map[it.id] = tp.post; break; }
+        }
       }
+      autoAssign[name] = map;
     }
-    autoAssign[name] = map;
   }
 }
 
@@ -388,10 +409,10 @@ function assignKindBadge(kind) {
   return `<span class="assign-kind" style="background:${bg}; color:${fg};">${esc(kind)}</span>`;
 }
 
-function assignChecklistHtml(name, today) {
+function assignChecklistHtml(name, course, today) {
   const st = assignStatus[name] || {};
   const auto = autoAssign[name] || {};
-  return ASSIGNMENT_GROUPS.map((g) => {
+  return course.groups.map((g) => {
     const items = g.items.map((it) => {
       const autoPost = auto[it.id];
       const manual = !!st[it.id];
@@ -418,11 +439,11 @@ function assignChecklistHtml(name, today) {
   }).join("");
 }
 
-function assignCounts(name, today) {
+function assignCounts(name, all, today) {
   const st = assignStatus[name] || {};
   const auto = autoAssign[name] || {};
   let done = 0, doneDue = 0;
-  for (const it of ALL_ASSIGNMENTS) {
+  for (const it of all) {
     if (auto[it.id] || st[it.id]) { done++; if (it.due <= today) doneDue++; }
   }
   return { done, doneDue };
@@ -430,9 +451,13 @@ function assignCounts(name, today) {
 
 function updateAssignRow(name, today) {
   const wrap = document.getElementById("assign-table-wrap");
-  const dueSoFar = ALL_ASSIGNMENTS.filter((it) => it.due <= today).length;
-  const total = ALL_ASSIGNMENTS.length;
-  const { done, doneDue } = assignCounts(name, today);
+  const m = memberList.find((x) => x.name === name);
+  const course = m && findCourse(m.course);
+  if (!course) return;
+  const all = courseAssignments(course);
+  const dueSoFar = all.filter((it) => it.due <= today).length;
+  const total = all.length;
+  const { done, doneDue } = assignCounts(name, all, today);
   const rate = dueSoFar > 0 ? (doneDue / dueSoFar) * 100 : 0;
   const totalRate = total > 0 ? (done / total) * 100 : 0;
   for (const tr of wrap.querySelectorAll(".assign-row")) {
@@ -467,40 +492,54 @@ function renderAssignTable() {
   const wrap = document.getElementById("assign-table-wrap");
   if (!wrap) return;
   const today = todayISO();
-  const total = ALL_ASSIGNMENTS.length;
-  const dueSoFar = ALL_ASSIGNMENTS.filter((it) => it.due <= today).length;
-  document.getElementById("assign-meta").textContent =
-    `완주율 = 마감 도래(${dueSoFar}건) 기준 · 괄호: 전체 ${total}건 · 수집 글 자동 체크`;
 
-  const names = qtNames.length ? qtNames : memberNames;
-  if (!names.length) {
-    wrap.innerHTML = `<p class="muted">표시할 멤버가 없습니다.</p>`;
+  // 수집 대상(active) 멤버를 과정별로 묶기
+  const active = memberList.filter((m) => m.active);
+  const sections = COURSES
+    .map((course) => ({ course, names: active.filter((m) => m.course === course.id).map((m) => m.name) }))
+    .filter((s) => s.names.length);
+
+  if (!sections.length) {
+    document.getElementById("assign-meta").textContent = "";
+    wrap.innerHTML = `<p class="muted">과정이 배정된 멤버가 없습니다. ‘⚙️ 멤버 관리’에서 각 멤버의 과정을 지정하세요.</p>`;
     return;
   }
-  buildAutoAssign(names);
+  document.getElementById("assign-meta").textContent =
+    "수집된 [훈련나눔] 글로 자동 체크 · 완주율은 마감 도래 기준(괄호: 전체)";
 
-  const rows = names.map((name) => {
-    const { done, doneDue } = assignCounts(name, today);
-    const rate = dueSoFar > 0 ? (doneDue / dueSoFar) * 100 : 0;
-    const totalRate = total > 0 ? (done / total) * 100 : 0;
-    return { name, doneDue, rate, totalRate };
-  });
-  rows.sort((a, b) => (b.rate !== a.rate ? b.rate - a.rate : a.name.localeCompare(b.name, "ko")));
+  buildAutoAssign(sections);
 
-  let html = `<table class="qt-table"><thead><tr>
-      <th class="caret-cell"></th><th>순위</th><th>성함</th><th>완료(마감도래)</th><th>완주율 (전체)</th></tr></thead><tbody>`;
-  rows.forEach((r, i) => {
-    const color = rateColor(r.rate);
-    html += `<tr class="qt-row assign-row" data-name="${esc(r.name)}" title="클릭하면 과제 체크">
-      <td class="caret-cell"><span class="caret">▸</span></td>
-      <td class="rank">${i + 1}</td>
-      <td class="name">${esc(r.name)}</td>
-      <td class="assign-done">${r.doneDue} / ${dueSoFar}</td>
-      <td class="assign-rate" style="color:${color}; font-weight:700;">${r.rate.toFixed(0)}% <span class="rate-sub">(${r.totalRate.toFixed(0)}%)</span></td>
-    </tr>
-    <tr class="qt-detail" hidden><td colspan="5">${assignChecklistHtml(r.name, today)}</td></tr>`;
-  });
-  html += `</tbody></table>`;
+  let html = "";
+  for (const { course, names } of sections) {
+    const all = courseAssignments(course);
+    const dueSoFar = all.filter((it) => it.due <= today).length;
+    const total = all.length;
+
+    const rows = names.map((name) => {
+      const { done, doneDue } = assignCounts(name, all, today);
+      const rate = dueSoFar > 0 ? (doneDue / dueSoFar) * 100 : 0;
+      const totalRate = total > 0 ? (done / total) * 100 : 0;
+      return { name, doneDue, rate, totalRate };
+    });
+    rows.sort((a, b) => (b.rate !== a.rate ? b.rate - a.rate : a.name.localeCompare(b.name, "ko")));
+
+    html += `<div class="assign-course">
+      <h3 class="assign-course-h">${esc(course.label)} <span class="card-meta">마감 도래 ${dueSoFar} / 전체 ${total}</span></h3>
+      <table class="qt-table"><thead><tr>
+        <th class="caret-cell"></th><th>순위</th><th>성함</th><th>완료(마감도래)</th><th>완주율 (전체)</th></tr></thead><tbody>`;
+    rows.forEach((r, i) => {
+      const color = rateColor(r.rate);
+      html += `<tr class="qt-row assign-row" data-name="${esc(r.name)}" title="클릭하면 과제 체크">
+        <td class="caret-cell"><span class="caret">▸</span></td>
+        <td class="rank">${i + 1}</td>
+        <td class="name">${esc(r.name)}</td>
+        <td class="assign-done">${r.doneDue} / ${dueSoFar}</td>
+        <td class="assign-rate" style="color:${color}; font-weight:700;">${r.rate.toFixed(0)}% <span class="rate-sub">(${r.totalRate.toFixed(0)}%)</span></td>
+      </tr>
+      <tr class="qt-detail" hidden><td colspan="5">${assignChecklistHtml(r.name, course, today)}</td></tr>`;
+    });
+    html += `</tbody></table></div>`;
+  }
   wrap.innerHTML = html;
 
   wrap.querySelectorAll(".assign-row").forEach((tr) => {
@@ -675,6 +714,13 @@ function wireChrome() {
 }
 
 /* ===================== 멤버 관리 (관리자) ===================== */
+function courseOptionsHtml(sel) {
+  return [`<option value=""${!sel ? " selected" : ""}>해당없음</option>`]
+    .concat(COURSES.map((c) =>
+      `<option value="${esc(c.id)}"${c.id === sel ? " selected" : ""}>${esc(c.label)}</option>`))
+    .join("");
+}
+
 function renderAdmin() {
   const wrap = document.getElementById("admin-view");
   wrap.innerHTML =
@@ -687,16 +733,19 @@ function renderAdmin() {
       </div>
       <div id="admin-msg" class="muted" style="margin:8px 0;"></div>
       <div class="table-wrap"><table class="qt-table"><thead><tr>
-        <th>이름</th><th>큐티 집계</th><th>수집 대상</th><th></th>
+        <th>이름</th><th>큐티 집계</th><th>수집 대상</th><th>훈련과정</th><th></th>
       </tr></thead><tbody>` +
       memberList.map((m) => `<tr>
         <td class="name">${esc(m.name)}</td>
         <td><input type="checkbox" data-act="qt" data-name="${esc(m.name)}" ${m.qt ? "checked" : ""} /></td>
         <td><input type="checkbox" data-act="active" data-name="${esc(m.name)}" ${m.active ? "checked" : ""} /></td>
+        <td><select class="course-select" data-name="${esc(m.name)}">${courseOptionsHtml(m.course)}</select></td>
         <td><button class="btn btn-ghost btn-del" data-name="${esc(m.name)}">삭제</button></td>
       </tr>`).join("") +
       `</tbody></table></div>
-      <p class="muted" style="margin-top:12px;">※ 변경은 다음 수집부터 반영됩니다. 권한 오류가 나면 관리자 클레임이 설정됐는지 확인하세요(README).</p>
+      <p class="muted" style="margin-top:12px;">※ <b>큐티 집계</b>=월간 큐티 완주 현황 대상 · <b>수집 대상</b>=글 자동 수집 ·
+      <b>훈련과정</b>=과제 현황에서 채점할 과정(다른 기수는 ‘해당없음’ 또는 다른 과정 선택).
+      변경은 다음 수집부터 반영됩니다. 권한 오류가 나면 관리자 클레임을 확인하세요(README).</p>
     </section>`;
 
   const msg = (t, ok) => {
@@ -710,7 +759,8 @@ function renderAdmin() {
     if (memberList.some((m) => m.name === name)) { msg("이미 있는 이름입니다.", false); return; }
     try {
       await ensureSeeded();
-      await set(ref(db, "members/" + name), { name, qt: true, active: true, createdAt: new Date().toISOString() });
+      const course = COURSES[0] ? COURSES[0].id : "";
+      await set(ref(db, "members/" + name), { name, qt: true, active: true, course, createdAt: new Date().toISOString() });
       msg(`'${name}' 추가됨`, true);
       await reloadMembersAndUi();
     } catch (e) { msg("추가 실패: " + (e.message || e), false); }
@@ -724,6 +774,18 @@ function renderAdmin() {
         await update(ref(db, "members/" + name), { [field]: cb.checked });
         await reloadMembersAndUi();
       } catch (e) { cb.checked = !cb.checked; msg("변경 실패: " + (e.message || e), false); }
+    });
+  });
+
+  wrap.querySelectorAll(".course-select").forEach((sel) => {
+    const prev = sel.value;
+    sel.addEventListener("change", async () => {
+      const name = sel.dataset.name;
+      try {
+        await ensureSeeded();
+        await update(ref(db, "members/" + name), { course: sel.value });
+        await reloadMembersAndUi();
+      } catch (e) { sel.value = prev; msg("변경 실패: " + (e.message || e), false); }
     });
   });
 
@@ -748,7 +810,7 @@ async function ensureSeeded() {
   if (snap.exists()) return;
   const updates = {};
   for (const m of memberList) {
-    updates[m.name] = { name: m.name, qt: m.qt, active: m.active };
+    updates[m.name] = { name: m.name, qt: m.qt, active: m.active, course: m.course || "" };
   }
   if (Object.keys(updates).length) await update(ref(db, "members"), updates);
 }
