@@ -10,7 +10,7 @@
 //   MAX_PAGES=60   안전 상한
 import { initDb } from "./lib/firebase.js";
 import { loadMembers } from "./lib/members.js";
-import { fetchListHtml, parseList, fetchPostContent } from "./lib/scrape.js";
+import { fetchListHtml, parseList, fetchPostContent, postNum } from "./lib/scrape.js";
 
 const PROBE = process.env.PROBE === "1";
 const PAGE_PARAM = process.env.PAGE_PARAM || "page";
@@ -70,9 +70,12 @@ async function probe(name) {
 async function collectMember(db, name, checkedAt) {
   const postsRef = db.ref(`posts/${name}`);
   const existingSnap = await postsRef.get();
-  const existingLinks = new Set();
+  const existingNums = new Set(); // 글 고유번호(num) 기준 중복 판정
   if (existingSnap.exists()) {
-    for (const v of Object.values(existingSnap.val())) if (v && v.link) existingLinks.add(v.link);
+    for (const v of Object.values(existingSnap.val())) {
+      const n = postNum(v && v.link);
+      if (n) existingNums.add(n);
+    }
   }
 
   let added = 0;
@@ -96,11 +99,12 @@ async function collectMember(db, name, checkedAt) {
     let stop = false;
     for (const p of posts) {
       if (p.date < CUTOFF) { stop = true; break; } // 더 과거 → 중단(최신순 가정)
-      if (existingLinks.has(p.link)) continue;
+      const num = postNum(p.link);
+      if (num && existingNums.has(num)) continue;
       let content = "";
       try { content = await fetchPostContent(p.link); } catch (_) {}
       await postsRef.push({ collectedAt: checkedAt, postDate: p.date, title: p.title, link: p.link, content });
-      existingLinks.add(p.link);
+      if (num) existingNums.add(num);
       added++;
       await sleep(400);
     }
