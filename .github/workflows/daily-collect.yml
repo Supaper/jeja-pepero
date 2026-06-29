@@ -1,9 +1,9 @@
-name: Post Collection (30min, daytime)
+name: Post Collection (10min, daytime)
 
 on:
   schedule:
-    # KST 06~23시 30분마다 (= UTC 21~23,0~14시의 7·37분). 이메일은 보내지 않고 RTDB에만 저장.
-    - cron: "7,37 21-23,0-14 * * *"
+    # KST 06~23시 10분마다 (= UTC 21~23,0~14시의 3·13·23·33·43·53분). 이메일 없이 RTDB에만 저장.
+    - cron: "3-59/10 21-23,0-14 * * *"
   workflow_dispatch: {} # 수동 실행
 
 concurrency:
