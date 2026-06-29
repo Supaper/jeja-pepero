@@ -91,12 +91,12 @@ export function extractQtDays(title, year, month, daysInMonth) {
   return days;
 }
 
-// 상세페이지 본문이 들어있을 가능성이 높은 컨테이너 후보(앞에서부터 우선).
-// 실제 사이트 구조 확인 후 조정합니다(probeDetail 로 확인).
+// 상세페이지 본문 컨테이너(앞에서부터 우선). thelifechurch.kr 구조 확인 결과 .mdView_cont.
 const CONTENT_SELECTORS = [
-  ".mdWebzineView", ".mdWebzineCont", ".mdWebzineContent",
-  ".webzine_view", ".board_view", ".view_content", ".bo_content",
-  "#contents .content", "#content",
+  ".mdView_cont",
+  "#AB_viewPrintArea .mdView_cont",
+  "#AB_viewPrintArea",
+  ".mdViewWrap",
 ];
 
 function nodeToText($, el) {
