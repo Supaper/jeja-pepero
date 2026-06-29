@@ -3,6 +3,17 @@
 // 알고리즘을 Node 환경으로 충실히 이식한 것입니다.
 import * as cheerio from "cheerio";
 
+// 응답 지연으로 작업이 멈추지 않도록 타임아웃이 있는 fetch.
+async function fetchWithTimeout(url, ms = 15000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { signal: ctrl.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 export const TARGET_NAMES = [
   "강성건", "서승민", "양지혜", "유정인", "이재황", "이소현", "임채환",
   "최연희", "최지인", "한상필", "한수종", "홍종성", "황미진", "백지연",
@@ -25,7 +36,7 @@ export const DOMAIN = "http://www.thelifechurch.kr";
  */
 export async function fetchPosts(name) {
   const url = BASE_URL + encodeURIComponent(name);
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url);
   if (!res.ok) throw new Error(`${name} 페이지 응답 오류: ${res.status}`);
   const html = await res.text();
 
@@ -115,7 +126,7 @@ function nodeToText($, el) {
 
 /** 상세페이지 본문을 텍스트로 추출. 적절한 컨테이너를 못 찾으면 "" 반환. */
 export async function fetchPostContent(link) {
-  const res = await fetch(link);
+  const res = await fetchWithTimeout(link);
   if (!res.ok) throw new Error(`상세 응답 오류: ${res.status}`);
   const html = await res.text();
   const $ = cheerio.load(html);
