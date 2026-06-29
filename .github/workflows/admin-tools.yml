@@ -13,6 +13,7 @@ on:
           - set-admin         # admin_email 에 관리자 권한 부여
           - revoke-admin      # admin_email 의 관리자 권한 회수
           - dedupe-posts      # 중복 글(num) 제거
+          - diagnose          # 데이터 진단(월 분포/과거글/중복) 출력만
       admin_email:
         description: "set-admin/revoke-admin 시 대상 이메일"
         required: false
@@ -55,5 +56,6 @@ jobs:
             seed-members) npm run seed:members ;;
             set-admin|revoke-admin) npm run set:admin ;;
             dedupe-posts) npm run dedupe:posts ;;
+            diagnose) npm run diagnose ;;
             *) echo "알 수 없는 작업"; exit 1 ;;
           esac
