@@ -1,53 +1,45 @@
-// 데이터 진단: /posts 의 월 분포, 과거(2026 이전) 글, num 중복을 출력만 합니다(쓰기 없음).
+// 데이터 진단(출력 전용): 카테고리 분포 + [훈련나눔] 글 제목 덤프.
+// 과제 자동 매칭 규칙 설계를 위해 실제 제목 형식을 확인하는 용도.
 import { initDb } from "./lib/firebase.js";
 import { loadMembers } from "./lib/members.js";
-import { postNum } from "./lib/scrape.js";
+
+// 제목 맨 앞 [태그]/(태그) 추출
+function tagOf(title) {
+  const m = String(title || "").trim().match(/^[\[\(【]\s*([^\]\)】]+?)\s*[\]\)】]/);
+  return m ? m[1].trim() : "(없음)";
+}
 
 async function main() {
   const db = initDb();
   const members = await loadMembers(db);
 
-  const monthTotals = {}; // "YYYY-MM" -> count
-  const oldSamples = []; // postDate < 2026 인 글 샘플
-  let totalPosts = 0;
-  let dupTotal = 0;
+  const catCounts = {};
+  const trainingTitles = []; // 훈련나눔 글
 
   for (const m of members) {
     const snap = await db.ref(`posts/${m.name}`).get();
     if (!snap.exists()) continue;
-    const entries = Object.values(snap.val());
-    totalPosts += entries.length;
-
-    const numCounts = new Map();
-    for (const p of entries) {
-      const pd = String((p && p.postDate) || "");
-      const mm = pd.match(/^(\d{4})\.(\d{2})/);
-      if (mm) {
-        const ym = `${mm[1]}-${mm[2]}`;
-        monthTotals[ym] = (monthTotals[ym] || 0) + 1;
-        if (mm[1] < "2026" && oldSamples.length < 40) {
-          oldSamples.push(`${m.name} | ${pd} | ${(p.title || "").slice(0, 40)} | ${p.link || ""}`);
-        }
-      } else {
-        monthTotals["(무효)"] = (monthTotals["(무효)"] || 0) + 1;
-        if (oldSamples.length < 40) oldSamples.push(`${m.name} | [${pd}] | ${(p.title || "").slice(0, 40)}`);
+    for (const p of Object.values(snap.val())) {
+      const title = (p && p.title) || "";
+      if (!title) continue;
+      const tag = tagOf(title);
+      catCounts[tag] = (catCounts[tag] || 0) + 1;
+      const norm = title.replace(/\s+/g, "");
+      if (norm.includes("훈련나눔")) {
+        trainingTitles.push(`${m.name} | ${(p.postDate || "").slice(0, 10)} | ${title}`);
       }
-      const num = postNum(p && p.link);
-      if (num) numCounts.set(num, (numCounts.get(num) || 0) + 1);
     }
-    let dup = 0;
-    for (const c of numCounts.values()) if (c > 1) dup += c - 1;
-    if (dup) { dupTotal += dup; console.log(`중복(num): ${m.name} +${dup}`); }
   }
 
-  console.log(`\n총 글 수: ${totalPosts}, 멤버: ${members.length}`);
-  console.log(`\n=== 월별 글 분포 (postDate 기준) ===`);
-  for (const ym of Object.keys(monthTotals).sort()) {
-    console.log(`  ${ym}: ${monthTotals[ym]}`);
+  console.log(`=== 카테고리(앞 태그) 분포 ===`);
+  for (const [k, v] of Object.entries(catCounts).sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${k}: ${v}`);
   }
-  console.log(`\n=== 2026 이전 / 무효 postDate 샘플 (최대 40건) ===`);
-  for (const s of oldSamples) console.log("  " + s);
-  console.log(`\nnum 중복 합계: ${dupTotal}`);
+
+  trainingTitles.sort();
+  console.log(`\n=== [훈련나눔] 글 제목 (총 ${trainingTitles.length}건) ===`);
+  for (const t of trainingTitles) console.log("  " + t);
+
   process.exit(0);
 }
 
