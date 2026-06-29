@@ -1,0 +1,52 @@
+name: Admin Tools (seed members / set admin)
+
+# 관리자용 1회성 도구. Actions 탭에서 수동 실행.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "실행할 작업"
+        type: choice
+        required: true
+        options:
+          - seed-members      # 기존 명단을 /members 로 시드
+          - set-admin         # admin_email 에 관리자 권한 부여
+          - revoke-admin      # admin_email 의 관리자 권한 회수
+      admin_email:
+        description: "set-admin/revoke-admin 시 대상 이메일"
+        required: false
+        default: ""
+      force:
+        description: "seed-members 시 기존 값 덮어쓰기(FORCE)"
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: admin-tools
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        working-directory: scripts
+        run: npm install
+      - name: Run admin tool
+        working-directory: scripts
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          ADMIN_EMAIL: ${{ inputs.admin_email }}
+          FORCE: ${{ inputs.force && '1' || '' }}
+          REVOKE: ${{ inputs.action == 'revoke-admin' && '1' || '' }}
+        run: |
+          case "${{ inputs.action }}" in
+            seed-members) npm run seed:members ;;
+            set-admin|revoke-admin) npm run set:admin ;;
+            *) echo "알 수 없는 작업"; exit 1 ;;
+          esac

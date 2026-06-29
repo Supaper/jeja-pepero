@@ -197,6 +197,22 @@ html, body {
 .qt-table .name { font-weight: 600; }
 .qt-table .bar-cell { width: 28%; min-width: 110px; }
 .rate-sub { font-size: 12px; font-weight: 600; opacity: 0.85; }
+
+/* ---- 멤버 관리 ---- */
+.add-row { display: flex; gap: 8px; margin-bottom: 6px; }
+.add-row input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 14px;
+  outline: none;
+}
+.add-row input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(26,115,232,.15); }
+.btn-del { padding: 5px 12px; font-size: 13px; color: #b91c1c; }
+.btn-del:hover { background: #fee2e2; }
+#admin-view .qt-table td, #admin-view .qt-table th { text-align: center; }
+#admin-view .qt-table .name { text-align: left; }
 .bar { background: #eef1f6; border-radius: 6px; height: 8px; overflow: hidden; }
 .bar-fill { height: 100%; border-radius: 6px; transition: width .3s; }
 

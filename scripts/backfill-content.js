@@ -6,7 +6,8 @@
 //   기본     : content 없는 글에 본문 추출·저장. FORCE=1 이면 기존 content 도 덮어씀.
 //   LIMIT=n  : 처리 최대 건수(테스트용).
 import { initDb } from "./lib/firebase.js";
-import { TARGET_NAMES, fetchPostContent, probeDetail } from "./lib/scrape.js";
+import { loadMembers } from "./lib/members.js";
+import { fetchPostContent, probeDetail } from "./lib/scrape.js";
 
 const PROBE = process.env.PROBE === "1";
 const FORCE = process.env.FORCE === "1";
@@ -16,9 +17,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
   const db = initDb();
+  const names = (await loadMembers(db)).map((m) => m.name);
 
   if (PROBE) {
-    for (const name of TARGET_NAMES) {
+    for (const name of names) {
       const snap = await db.ref(`posts/${name}`).get();
       if (!snap.exists()) continue;
       const entries = Object.entries(snap.val());
@@ -40,7 +42,7 @@ async function main() {
 
   let processed = 0;
   let filled = 0;
-  for (const name of TARGET_NAMES) {
+  for (const name of names) {
     const ref = db.ref(`posts/${name}`);
     const snap = await ref.get();
     if (!snap.exists()) continue;

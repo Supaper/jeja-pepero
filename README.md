@@ -17,18 +17,22 @@ js/auth.js                     Google 로그인 + /users 허용 명단 검증
 js/config.js                   대시보드 공용 상수/큐티 날짜 파싱
 js/dashboard.js                완주 현황 표 + 최근 글 피드 렌더링
 js/app.js                      화면 전환 게이트
-scripts/                       GitHub Actions 스케줄 작업 (Node)
-  lib/scrape.js                게시판 스크래핑 / 큐티 날짜 파싱 (Apps Script 이식)
+scripts/                       GitHub Actions 작업 (Node)
+  lib/scrape.js                게시판 스크래핑 / 큐티 날짜 파싱
   lib/firebase.js              firebase-admin 초기화
+  lib/members.js               멤버 명단 로더(/members, 기본값 폴백)
   lib/mailer.js                Gmail SMTP 발송
-  collect-daily.js             일일 수집
+  collect-daily.js             신규 글 수집(본문 포함), 이메일 분리
+  digest-daily.js              그날 수집분 요약 이메일
   report-monthly.js            월간 큐티 리포트
+  backfill-content.js          기존 글 본문 일괄 채움
   migrate-sheets.js            기존 시트 → RTDB 일회성 이관
+  seed-members.js / set-admin.js  멤버 시드 / 관리자 권한 부여
 .github/workflows/
-  daily-collect.yml            낮 30분마다 수집(이메일 X)
+  daily-collect.yml            낮(06~23시) 10분마다 수집(이메일 X)
   daily-digest.yml             매일 23:50 KST 일일 요약 이메일
   monthly-report.yml           매월 1일 월간 큐티 리포트
-  scripts/digest-daily.js      그날 수집분 요약 이메일
+  backfill-content.yml / migrate-sheets.yml / admin-tools.yml  수동 도구
 ```
 
 ## 로그인 (Google 계정)
@@ -54,17 +58,34 @@ scripts/                       GitHub Actions 스케줄 작업 (Node)
 1. **Authentication → Sign-in method → Google 공급자 사용 설정**
 2. **Authentication → Settings → 승인된 도메인(Authorized domains)** 에 배포 도메인
    추가: `supaper.github.io` (로컬 테스트 시 `localhost` 는 기본 포함)
-3. (권장) **Realtime Database 보안 규칙**으로 `/users` read 를 로그인 사용자로 제한:
+3. **Realtime Database 보안 규칙** (멤버 관리를 관리자만 쓰도록):
    ```json
    {
      "rules": {
-       "users":  { ".read": "auth != null", ".write": false },
-       "posts":  { ".read": "auth != null", ".write": false },
-       "state":  { ".read": false, ".write": false }
+       "users":   { ".read": "auth != null", ".write": "auth.token.admin === true", ".indexOn": ["email"] },
+       "members": { ".read": "auth != null", ".write": "auth.token.admin === true" },
+       "posts":   { ".read": "auth != null", ".write": false },
+       "state":   { ".read": false, ".write": false }
      }
    }
    ```
    (서버 작업은 서비스 계정으로 쓰므로 규칙과 무관하게 write 가능)
+
+## 멤버 관리 (관리자)
+
+멤버 명단은 RTDB `/members/<이름>: { name, qt, active }` 에 저장되며 **관리자가 웹에서**
+추가/삭제/토글합니다. (`qt`=큐티 집계 대상, `active`=수집 대상). 비어 있으면 코드 기본값
+(현재 14명)으로 동작하다가, 시드 후엔 `/members`가 기준이 됩니다.
+
+### 관리자 권한 부여 (1회) — 커스텀 클레임
+브라우저에서 멤버를 수정하려면 그 계정에 `admin` 클레임이 있어야 합니다.
+1. 대상 계정으로 웹에 **한 번 로그인**(Authentication에 사용자 생성됨)
+2. **Actions → "Admin Tools" → Run workflow → action: `set-admin`**, `admin_email`에 이메일 입력
+3. 해당 계정 **로그아웃 후 재로그인**(토큰 갱신) → 사이드바에 "⚙️ 멤버 관리" 표시
+
+### 기존 명단 시드 (1회)
+**Actions → "Admin Tools" → Run workflow → action: `seed-members`** → 현재 14명이 `/members`에 기록됩니다.
+(`/users` 의 admin 플래그는 UI 노출용이고, 실제 쓰기 허용은 위 커스텀 클레임으로 결정됩니다.)
 
 ## 로컬 실행 (웹)
 

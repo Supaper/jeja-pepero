@@ -2,7 +2,7 @@
 // 수집(collect-daily)은 자주 돌며 RTDB에만 저장하고, 이메일은 이 스크립트가 하루 1회 담당.
 import { initDb } from "./lib/firebase.js";
 import { sendMail } from "./lib/mailer.js";
-import { TARGET_NAMES } from "./lib/scrape.js";
+import { loadMembers } from "./lib/members.js";
 
 function todayKst() {
   // "yyyy-MM-dd" (Asia/Seoul)
@@ -18,11 +18,12 @@ function esc(s) {
 async function main() {
   const db = initDb();
   const day = todayKst();
+  const names = (await loadMembers(db)).filter((m) => m.active).map((m) => m.name);
 
   let body = "";
   let total = 0;
 
-  for (const name of TARGET_NAMES) {
+  for (const name of names) {
     const snap = await db.ref(`posts/${name}`).get();
     if (!snap.exists()) continue;
 

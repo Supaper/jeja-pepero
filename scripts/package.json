@@ -9,7 +9,9 @@
     "digest:daily": "node digest-daily.js",
     "report:monthly": "node report-monthly.js",
     "migrate:sheets": "node migrate-sheets.js",
-    "backfill:content": "node backfill-content.js"
+    "backfill:content": "node backfill-content.js",
+    "seed:members": "node seed-members.js",
+    "set:admin": "node set-admin.js"
   },
   "engines": {
     "node": ">=20"

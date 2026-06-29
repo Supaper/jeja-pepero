@@ -3,8 +3,8 @@
 // 신규 글이 있으면 알림 이메일을 보냅니다. 중복 방지 기준점은 /state/<이름>/lastTitle.
 import { initDb } from "./lib/firebase.js";
 import { sendMail } from "./lib/mailer.js";
+import { loadMembers } from "./lib/members.js";
 import {
-  TARGET_NAMES,
   START_DATE_STRING,
   fetchPosts,
   fetchPostContent,
@@ -24,11 +24,13 @@ function nowKst() {
 async function main() {
   const db = initDb();
   const checkedAt = nowKst();
+  const members = (await loadMembers(db)).filter((m) => m.active);
 
   let emailBody = "";
   let totalNew = 0;
 
-  for (const name of TARGET_NAMES) {
+  for (const member of members) {
+    const name = member.name;
     try {
       const { posts, firstTitle } = await fetchPosts(name);
 

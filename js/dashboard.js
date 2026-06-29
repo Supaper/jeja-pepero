@@ -4,7 +4,7 @@
 //   - 글 클릭 시 본문 모달(저장된 content 표시, 없으면 원문 링크 안내)
 // 를 렌더링합니다.
 import { db } from "./firebase-config.js";
-import { ref, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import { ref, get, set, update, remove } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 import {
   QT_TARGET_NAMES,
   TARGET_NAMES,
@@ -27,7 +27,31 @@ function catBadge(cat) {
 
 let postsByName = {}; // { name: [post, ...] }
 let loaded = false;
-let activeKey = "__dash"; // 현재 보고 있는 탭 (__dash 또는 멤버 이름)
+let activeKey = "__dash"; // 현재 보고 있는 탭 (__dash / __admin / 멤버 이름)
+let isAdmin = false;
+let memberList = []; // [{name, qt, active}] 전체
+let memberNames = []; // 수집/표시 대상 (active)
+let qtNames = []; // 큐티 집계 대상 (qt)
+
+// RTDB /members 로드. 없으면 config 기본값으로 폴백.
+async function loadMemberList() {
+  try {
+    const snap = await get(ref(db, "members"));
+    if (snap.exists()) {
+      const val = snap.val();
+      const list = Object.entries(val)
+        .map(([key, m]) => ({
+          name: (m && m.name) || key,
+          qt: !(m && m.qt === false),
+          active: !(m && m.active === false),
+        }))
+        .filter((m) => m.name)
+        .sort((a, b) => a.name.localeCompare(b.name, "ko"));
+      if (list.length) return list;
+    }
+  } catch (_) { /* 폴백 */ }
+  return TARGET_NAMES.map((n) => ({ name: n, qt: QT_TARGET_NAMES.includes(n), active: true }));
+}
 
 async function loadAllPosts(names) {
   const result = {};
@@ -115,7 +139,7 @@ function renderQtTable() {
   document.getElementById("qt-meta").textContent =
     `달성률 = 월 전체 (괄호: ${month}/${dayToday}까지)`;
 
-  const rows = QT_TARGET_NAMES.map((name) => {
+  const rows = qtNames.map((name) => {
     const posts = postsByName[name] || [];
     const uniqueDays = new Set();
     for (const p of posts) {
@@ -150,7 +174,7 @@ function renderQtTable() {
 let feedList = [];
 function renderFeed() {
   feedList = [];
-  for (const name of TARGET_NAMES) {
+  for (const name of memberNames) {
     for (const p of postsByName[name] || []) {
       if (p && p.title) feedList.push({ name, category: categorize(p.title), ...p });
     }
@@ -243,17 +267,22 @@ function setSidebar(open) {
   document.getElementById("sidebar-backdrop").hidden = !open;
 }
 
+function showView(key) {
+  document.getElementById("dashboard-view").hidden = key !== "__dash";
+  document.getElementById("member-view").hidden = !(key !== "__dash" && key !== "__admin");
+  document.getElementById("admin-view").hidden = key !== "__admin";
+}
+
 function buildTabs() {
   const nav = document.getElementById("tabs");
-  const dashEl = document.getElementById("dashboard-view");
-  const memberEl = document.getElementById("member-view");
 
   const tabs = [{ key: "__dash", label: "📊 대시보드" }]
-    .concat(TARGET_NAMES.map((n) => ({ key: n, label: n })));
+    .concat(memberNames.map((n) => ({ key: n, label: n })));
+  if (isAdmin) tabs.push({ key: "__admin", label: "⚙️ 멤버 관리" });
 
   nav.innerHTML = tabs
-    .map((t, i) =>
-      `<button class="side-item${i === 0 ? " active" : ""}" data-key="${esc(t.key)}">${esc(t.label)}</button>`
+    .map((t) =>
+      `<button class="side-item${t.key === activeKey ? " active" : ""}" data-key="${esc(t.key)}">${esc(t.label)}</button>`
     ).join("");
 
   nav.querySelectorAll(".side-item").forEach((btn) => {
@@ -261,25 +290,21 @@ function buildTabs() {
       nav.querySelectorAll(".side-item").forEach((b) => b.classList.toggle("active", b === btn));
       const key = btn.dataset.key;
       activeKey = key;
-      if (key === "__dash") {
-        dashEl.hidden = false;
-        memberEl.hidden = true;
-      } else {
-        dashEl.hidden = true;
-        memberEl.hidden = false;
-        renderMember(key);
-      }
+      showView(key);
+      if (key === "__admin") renderAdmin();
+      else if (key !== "__dash") renderMember(key);
       setSidebar(false); // 선택 후 닫기
     });
   });
+}
 
-  // 토글/백드롭/모달 닫기 배선
+// 사이드바/모달 등 1회성 배선
+function wireChrome() {
   document.getElementById("sidebar-toggle").addEventListener("click", () => {
     const open = !document.getElementById("sidebar").classList.contains("open");
     setSidebar(open);
   });
   document.getElementById("sidebar-backdrop").addEventListener("click", () => setSidebar(false));
-
   document.getElementById("modal-close").addEventListener("click", closeModal);
   document.getElementById("post-modal").addEventListener("click", (e) => {
     if (e.target.id === "post-modal") closeModal();
@@ -289,12 +314,88 @@ function buildTabs() {
   });
 }
 
-// 데이터를 다시 읽어 현재 화면을 갱신 (초기 로드 + 새로고침 공용)
-async function loadData() {
-  const notice = document.getElementById("notice");
-  notice.hidden = true;
+/* ===================== 멤버 관리 (관리자) ===================== */
+function renderAdmin() {
+  const wrap = document.getElementById("admin-view");
+  wrap.innerHTML =
+    `<section class="card">
+      <div class="card-head"><h2>⚙️ 멤버 관리</h2>
+        <span class="card-meta">총 ${memberList.length}명</span></div>
+      <div class="add-row">
+        <input id="new-member" type="text" placeholder="추가할 이름 (게시판 검색명과 동일)" />
+        <button id="add-member" class="btn btn-primary">추가</button>
+      </div>
+      <div id="admin-msg" class="muted" style="margin:8px 0;"></div>
+      <div class="table-wrap"><table class="qt-table"><thead><tr>
+        <th>이름</th><th>큐티 집계</th><th>수집 대상</th><th></th>
+      </tr></thead><tbody>` +
+      memberList.map((m) => `<tr>
+        <td class="name">${esc(m.name)}</td>
+        <td><input type="checkbox" data-act="qt" data-name="${esc(m.name)}" ${m.qt ? "checked" : ""} /></td>
+        <td><input type="checkbox" data-act="active" data-name="${esc(m.name)}" ${m.active ? "checked" : ""} /></td>
+        <td><button class="btn btn-ghost btn-del" data-name="${esc(m.name)}">삭제</button></td>
+      </tr>`).join("") +
+      `</tbody></table></div>
+      <p class="muted" style="margin-top:12px;">※ 변경은 다음 수집부터 반영됩니다. 권한 오류가 나면 관리자 클레임이 설정됐는지 확인하세요(README).</p>
+    </section>`;
 
-  const { result, firstError } = await loadAllPosts(TARGET_NAMES);
+  const msg = (t, ok) => {
+    const el = document.getElementById("admin-msg");
+    el.textContent = t; el.style.color = ok ? "#1a8a3c" : "#d93025";
+  };
+
+  document.getElementById("add-member").addEventListener("click", async () => {
+    const name = document.getElementById("new-member").value.trim();
+    if (!name) return;
+    if (memberList.some((m) => m.name === name)) { msg("이미 있는 이름입니다.", false); return; }
+    try {
+      await set(ref(db, "members/" + name), { name, qt: true, active: true, createdAt: new Date().toISOString() });
+      msg(`'${name}' 추가됨`, true);
+      await reloadMembersAndUi();
+    } catch (e) { msg("추가 실패: " + (e.message || e), false); }
+  });
+
+  wrap.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+    cb.addEventListener("change", async () => {
+      const name = cb.dataset.name, field = cb.dataset.act;
+      try {
+        await update(ref(db, "members/" + name), { [field]: cb.checked });
+        await reloadMembersAndUi();
+      } catch (e) { cb.checked = !cb.checked; msg("변경 실패: " + (e.message || e), false); }
+    });
+  });
+
+  wrap.querySelectorAll(".btn-del").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const name = b.dataset.name;
+      if (!confirm(`'${name}' 멤버를 삭제할까요? (수집한 글 기록은 유지됩니다)`)) return;
+      try {
+        await remove(ref(db, "members/" + name));
+        msg(`'${name}' 삭제됨`, true);
+        await reloadMembersAndUi();
+      } catch (e) { msg("삭제 실패: " + (e.message || e), false); }
+    });
+  });
+}
+
+async function reloadMembersAndUi() {
+  memberList = await loadMemberList();
+  memberNames = memberList.filter((m) => m.active).map((m) => m.name);
+  qtNames = memberList.filter((m) => m.qt).map((m) => m.name);
+  buildTabs();
+  renderQtTable();
+  if (activeKey === "__admin") renderAdmin();
+}
+
+// 데이터를 다시 읽어 현재 화면을 갱신
+async function loadData() {
+  document.getElementById("notice").hidden = true;
+
+  memberList = await loadMemberList();
+  memberNames = memberList.filter((m) => m.active).map((m) => m.name);
+  qtNames = memberList.filter((m) => m.qt).map((m) => m.name);
+
+  const { result, firstError } = await loadAllPosts(memberNames);
   postsByName = result;
 
   const total = Object.values(result).reduce((s, a) => s + a.length, 0);
@@ -303,7 +404,7 @@ async function loadData() {
     if (/permission|denied/i.test(msg)) {
       showNotice(
         "⚠️ 데이터 읽기 권한이 없습니다. <b>Realtime Database → 규칙</b>에서 " +
-        "<code>posts</code>·<code>users</code> 의 <code>.read</code> 를 " +
+        "<code>posts</code>·<code>members</code>·<code>users</code> 의 <code>.read</code> 를 " +
         "<code>\"auth != null\"</code> 로 설정해 게시하세요."
       );
     } else {
@@ -311,17 +412,20 @@ async function loadData() {
     }
   }
 
+  buildTabs();
   renderQtTable();
   renderFeed();
-  if (activeKey !== "__dash") renderMember(activeKey);
+  if (activeKey === "__admin") renderAdmin();
+  else if (activeKey !== "__dash") renderMember(activeKey);
 }
 
 /** 로그인 성공 후 1회 호출. */
-export async function initDashboard() {
+export async function initDashboard(profile) {
   if (loaded) return;
   loaded = true;
+  isAdmin = !!(profile && profile.admin);
   try {
-    buildTabs();
+    wireChrome();
     await loadData();
   } catch (e) {
     loaded = false;

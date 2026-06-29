@@ -27,7 +27,7 @@ function showMain(profile) {
   loginView.hidden = true;
   mainView.hidden = false;
   appEl.classList.remove("is-loading");
-  initDashboard();
+  initDashboard(profile);
 }
 
 function showLogin() {
