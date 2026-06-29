@@ -36,6 +36,17 @@ export function extractQtDays(title, year, month, daysInMonth) {
   return days;
 }
 
+// 공지글 여부 (수집기는 제외하지만, 과거 이관 데이터에 섞여 있을 수 있어 표시에서 한 번 더 걸러냄)
+export function isNotice(title) {
+  return String(title || "").replace(/\s+/g, "").includes("공지");
+}
+
+// 글 링크에서 게시글 번호(num) 추출 — 중복 판정 기준
+export function postNum(link) {
+  const m = String(link || "").match(/[?&]num=(\d+)/);
+  return m ? m[1] : "";
+}
+
 // 달성률 → 색상 (기존 리포트 규칙)
 export function rateColor(rate) {
   return rate >= 90 ? "#1a4fd8"
