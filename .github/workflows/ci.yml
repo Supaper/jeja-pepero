@@ -1,0 +1,30 @@
+name: CI
+
+# PR 및 main 푸시마다 가벼운 검증(문법/의존성/큐티 파서 테스트).
+# main 에서 자동 실행되는 수집 워크플로우가 깨지지 않도록 보호.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: JS 문법 검사 (node --check)
+        run: |
+          files=$(find js scripts -name '*.js' -not -path '*/node_modules/*')
+          for f in $files; do echo "check $f"; node --check "$f"; done
+
+      - name: scripts 의존성 설치
+        working-directory: scripts
+        run: npm install
+
+      - name: 단위 테스트
+        working-directory: scripts
+        run: npm test

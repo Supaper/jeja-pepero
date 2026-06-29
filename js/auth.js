@@ -4,7 +4,7 @@
 //
 // /users 구조 (allowlist):
 //   users/<key>: { email: "...", name: "...", admin: true|false }
-//   예) users/admin001: { admin: true, email: "tnwhd0713@gmail.com", name: "한수종" }
+//   예) users/admin001: { admin: true, email: "admin@example.com", name: "관리자" }
 //
 // 콘솔 설정: Authentication → Google 공급자 활성화,
 //           Authentication → Settings → 승인된 도메인에 배포 도메인 추가. (README 참고)
