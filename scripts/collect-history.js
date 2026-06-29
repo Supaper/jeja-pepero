@@ -57,6 +57,14 @@ async function probe(name) {
   // 3) "다음"/페이징 관련 스크립트 함수 흔적
   const fns = [...html.matchAll(/(go\w*Page\w*|fn\w*[Pp]age\w*|paging\w*|goList)\s*\(/g)].map((m) => m[1]);
   console.log("  페이징 관련 함수 흔적:", [...new Set(fns)].slice(0, 10).join(", ") || "(없음)");
+
+  // 4) page 파라미터로 실제 페이지가 넘어가는지 2~3페이지 날짜범위 비교
+  for (const pg of [2, 3]) {
+    const h = await fetchListHtml(name, pg, PAGE_PARAM);
+    const { posts: ps, firstTitle: ft } = parseList(h);
+    const range = ps.length ? `${ps[ps.length - 1].date} ~ ${ps[0].date}` : "(글 없음)";
+    console.log(`  [page=${pg}] 글 ${ps.length}건, 범위 ${range}, firstTitle="${ft}"`);
+  }
 }
 
 async function collectMember(db, name, checkedAt) {
