@@ -244,6 +244,18 @@ html, body {
 .week-range { color: var(--muted); font-size: 12px; }
 .week-count { font-weight: 700; color: var(--primary); white-space: nowrap; }
 .week-count.zero { color: var(--muted); font-weight: 600; }
+.week-count.clickable {
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  outline: none;
+}
+.week-count.clickable:hover,
+.week-count.clickable:focus-visible { opacity: .75; }
+
+/* 주차 글 목록 모달은 글 본문 모달보다 아래에 스택 */
+#post-modal { z-index: 50; }
+.modal-list { padding: 8px 22px 18px; overflow-y: auto; }
 
 /* ---- 멤버 관리 ---- */
 .add-row { display: flex; gap: 8px; margin-bottom: 6px; }
