@@ -348,9 +348,39 @@ function closeWeekModal() {
 }
 
 /* ===================== 과제 완주 현황 ===================== */
+let autoAssign = {}; // { name: { assignmentId: matchedPost } } — 수집 글로 자동 매칭된 과제
+
 function todayISO() {
   const n = new Date();
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
+}
+
+// 매칭용 정규화: 맨 앞 분류 태그([훈련나눔] 등)를 떼고 공백 제거·소문자.
+// (태그의 "훈련나눔"이 키워드 "나눔" 등과 충돌하지 않도록 제거)
+function normTitle(s) {
+  return String(s ?? "")
+    .replace(/^\s*[\[\(【][^\]\)】]*[\]\)】]\s*/, "")
+    .replace(/\s+/g, "")
+    .toLowerCase();
+}
+
+// 멤버별 [훈련나눔] 글 제목을 과제 키워드(m/x)로 매칭 → autoAssign 구성
+function buildAutoAssign(names) {
+  autoAssign = {};
+  for (const name of names) {
+    const tps = (postsByName[name] || [])
+      .filter((p) => p && p.title && categorize(p.title) === "훈련나눔")
+      .map((p) => ({ post: { ...p, name, category: "훈련나눔" }, n: normTitle(p.title) }));
+    const map = {};
+    for (const it of ALL_ASSIGNMENTS) {
+      if (!it.m || !it.m.length) continue;
+      for (const tp of tps) {
+        if (it.x && it.x.some((xk) => tp.n.includes(xk))) continue;
+        if (it.m.some((k) => tp.n.includes(k))) { map[it.id] = tp.post; break; }
+      }
+    }
+    autoAssign[name] = map;
+  }
 }
 
 function assignKindBadge(kind) {
@@ -360,13 +390,25 @@ function assignKindBadge(kind) {
 
 function assignChecklistHtml(name, today) {
   const st = assignStatus[name] || {};
+  const auto = autoAssign[name] || {};
   return ASSIGNMENT_GROUPS.map((g) => {
     const items = g.items.map((it) => {
-      const done = !!st[it.id];
+      const autoPost = auto[it.id];
+      const manual = !!st[it.id];
+      const done = !!autoPost || manual;
       const overdue = !done && it.due < today;
       const dueLabel = it.due.slice(5).replace("-", "/");
+      if (autoPost) {
+        return `<div class="assign-item auto" data-name="${esc(name)}" data-id="${esc(it.id)}" title="수집된 글로 자동 완료 · 클릭하면 글 보기">
+          <span class="assign-box done">✓</span>
+          ${assignKindBadge(it.kind)}
+          <span class="assign-text">${esc(it.title)}</span>
+          <span class="assign-auto">자동 ↗</span>
+          <span class="assign-due">~${dueLabel}</span>
+        </div>`;
+      }
       return `<label class="assign-item${overdue ? " overdue" : ""}">
-        <input type="checkbox" class="assign-check" data-name="${esc(name)}" data-id="${esc(it.id)}" data-due="${it.due}" ${done ? "checked" : ""} />
+        <input type="checkbox" class="assign-check" data-name="${esc(name)}" data-id="${esc(it.id)}" data-due="${it.due}" ${manual ? "checked" : ""} />
         ${assignKindBadge(it.kind)}
         <span class="assign-text">${esc(it.title)}</span>
         <span class="assign-due">~${dueLabel}</span>
@@ -378,9 +420,10 @@ function assignChecklistHtml(name, today) {
 
 function assignCounts(name, today) {
   const st = assignStatus[name] || {};
+  const auto = autoAssign[name] || {};
   let done = 0, doneDue = 0;
   for (const it of ALL_ASSIGNMENTS) {
-    if (st[it.id]) { done++; if (it.due <= today) doneDue++; }
+    if (auto[it.id] || st[it.id]) { done++; if (it.due <= today) doneDue++; }
   }
   return { done, doneDue };
 }
@@ -427,14 +470,16 @@ function renderAssignTable() {
   const total = ALL_ASSIGNMENTS.length;
   const dueSoFar = ALL_ASSIGNMENTS.filter((it) => it.due <= today).length;
   document.getElementById("assign-meta").textContent =
-    `완주율 = 마감 도래(${dueSoFar}건) 기준 · 괄호: 전체 ${total}건`;
+    `완주율 = 마감 도래(${dueSoFar}건) 기준 · 괄호: 전체 ${total}건 · 수집 글 자동 체크`;
 
-  if (!memberNames.length) {
+  const names = qtNames.length ? qtNames : memberNames;
+  if (!names.length) {
     wrap.innerHTML = `<p class="muted">표시할 멤버가 없습니다.</p>`;
     return;
   }
+  buildAutoAssign(names);
 
-  const rows = memberNames.map((name) => {
+  const rows = names.map((name) => {
     const { done, doneDue } = assignCounts(name, today);
     const rate = dueSoFar > 0 ? (doneDue / dueSoFar) * 100 : 0;
     const totalRate = total > 0 ? (done / total) * 100 : 0;
@@ -469,6 +514,12 @@ function renderAssignTable() {
   });
   wrap.querySelectorAll(".assign-check").forEach((cb) => {
     cb.addEventListener("change", () => onToggleAssign(cb, today));
+  });
+  wrap.querySelectorAll(".assign-item.auto").forEach((el) => {
+    el.addEventListener("click", () => {
+      const p = (autoAssign[el.dataset.name] || {})[el.dataset.id];
+      if (p) openPostModal(p);
+    });
   });
 }
 

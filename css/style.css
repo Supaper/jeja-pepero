@@ -296,6 +296,24 @@ html, body {
 .assign-item.overdue .assign-due { color: #d93025; font-weight: 700; }
 .assign-row .assign-done { white-space: nowrap; }
 
+/* 자동 완료(수집 글 매칭) 항목 */
+.assign-box {
+  flex: none;
+  width: 16px; height: 16px;
+  border-radius: 4px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 800;
+}
+.assign-box.done { background: #16a34a; color: #fff; }
+.assign-item.auto .assign-text { color: #1f2937; }
+.assign-auto {
+  flex: none;
+  font-size: 11px; font-weight: 700;
+  color: #047857; background: #ecfdf5;
+  border-radius: 6px; padding: 1px 7px;
+  white-space: nowrap;
+}
+
 /* ---- 멤버 관리 ---- */
 .add-row { display: flex; gap: 8px; margin-bottom: 6px; }
 .add-row input {
