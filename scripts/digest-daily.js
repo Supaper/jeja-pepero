@@ -1,12 +1,34 @@
-// 일일 요약 이메일: 오늘(KST) 수집된 신규 글을 한 통으로 묶어 발송.
+// 일일 요약 이메일: 대상 날짜(KST)에 수집된 신규 글을 한 통으로 발송.
 // 수집(collect-daily)은 자주 돌며 RTDB에만 저장하고, 이메일은 이 스크립트가 하루 1회 담당.
+//
+// 대상 날짜 결정(예약 지연·자정 넘김에 강건):
+//   - 기본은 "지금(KST)" 날짜.
+//   - 단, 실행 시각이 KST 00:00~11:59 이면(예약 23:50가 자정 넘겨 밀린 경우) "전날"로 간주.
+//   - DIGEST_DAY=YYYY-MM-DD 로 특정 날짜를 강제 발송할 수 있음(수동 재발송용).
+// 글의 collectedAt 도 KST 날짜로 변환해 비교(UTC 슬라이스 비교의 오차 제거).
 import { initDb } from "./lib/firebase.js";
 import { sendMail } from "./lib/mailer.js";
 import { loadMembers } from "./lib/members.js";
 
-function todayKst() {
-  // "yyyy-MM-dd" (Asia/Seoul)
-  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul" }).format(new Date());
+function kstDateStr(date) {
+  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul" }).format(date);
+}
+function kstHour(date) {
+  const s = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Seoul", hour: "2-digit", hour12: false }).format(date);
+  return parseInt(s, 10) % 24;
+}
+
+// 발송 대상 KST 날짜 계산
+function resolveTargetDay() {
+  if (process.env.DIGEST_DAY && /^\d{4}-\d{2}-\d{2}$/.test(process.env.DIGEST_DAY)) {
+    return process.env.DIGEST_DAY;
+  }
+  const now = new Date();
+  if (kstHour(now) < 12) {
+    // 자정~정오 실행(예약 지연 포함) → 전날 디제스트로 간주
+    return kstDateStr(new Date(now.getTime() - 24 * 3600 * 1000));
+  }
+  return kstDateStr(now);
 }
 
 function esc(s) {
@@ -17,7 +39,7 @@ function esc(s) {
 
 async function main() {
   const db = initDb();
-  const day = todayKst();
+  const day = resolveTargetDay();
   const names = (await loadMembers(db)).filter((m) => m.active).map((m) => m.name);
 
   let body = "";
@@ -28,7 +50,10 @@ async function main() {
     if (!snap.exists()) continue;
 
     const todays = Object.values(snap.val())
-      .filter((p) => p && p.title && String(p.collectedAt || "").slice(0, 10) === day)
+      .filter((p) => {
+        if (!p || !p.title || !p.collectedAt) return false;
+        return kstDateStr(new Date(p.collectedAt)) === day;
+      })
       .sort((a, b) => String(a.postDate || "").localeCompare(String(b.postDate || "")));
 
     if (todays.length === 0) continue;
@@ -42,7 +67,7 @@ async function main() {
   }
 
   if (total === 0) {
-    console.log(`${day}: 오늘 수집된 신규 글이 없어 이메일을 보내지 않습니다.`);
+    console.log(`${day}: 수집된 신규 글이 없어 이메일을 보내지 않습니다.`);
     process.exit(0);
   }
 
@@ -51,7 +76,7 @@ async function main() {
     html:
       `<div style="font-family:sans-serif; padding:10px;">` +
       `<h2 style="color:#333;">📅 ${day} 신규 게시물 요약</h2>` +
-      `<p style="color:#666;">오늘 하루 수집된 게시물 목록입니다.</p><br>` +
+      `<p style="color:#666;">${day} 하루 수집된 게시물 목록입니다.</p><br>` +
       body +
       `</div>`,
   });

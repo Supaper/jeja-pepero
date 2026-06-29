@@ -4,7 +4,12 @@ on:
   schedule:
     # 매일 KST 23:50 (= UTC 14:50)에 그날 수집된 신규 글을 한 통으로 발송.
     - cron: "50 14 * * *"
-  workflow_dispatch: {} # 수동 실행
+  workflow_dispatch:
+    inputs:
+      day:
+        description: "재발송할 날짜 (KST, YYYY-MM-DD). 비우면 자동 판정"
+        required: false
+        default: ""
 
 concurrency:
   group: daily-digest
@@ -28,4 +33,5 @@ jobs:
           MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
           MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
+          DIGEST_DAY: ${{ inputs.day }}
         run: npm run digest:daily
