@@ -127,17 +127,88 @@ function wirePostClicks(container, list) {
 }
 
 /* ===================== 대시보드 ===================== */
+let selectedYM = null; // 보고 있는 달 "YYYY-MM" (기본: 이번 달)
+
+function ymKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+// 글의 등록일(postDate)로부터 선택 가능한 달 목록(내림차순). 이번 달은 항상 포함.
+function availableMonths() {
+  const set = new Set();
+  for (const arr of Object.values(postsByName)) {
+    for (const p of arr || []) {
+      const m = String((p && p.postDate) || "").match(/^(\d{4})\.(\d{2})/);
+      if (m && m[1] !== "0000") set.add(`${m[1]}-${m[2]}`);
+    }
+  }
+  set.add(ymKey(new Date()));
+  return [...set].sort().reverse();
+}
+
+function populateMonthDropdown() {
+  const sel = document.getElementById("qt-month");
+  if (!sel) return;
+  const months = availableMonths();
+  if (!selectedYM || !months.includes(selectedYM)) selectedYM = months[0];
+  sel.innerHTML = months
+    .map((ym) => {
+      const [y, m] = ym.split("-");
+      return `<option value="${ym}"${ym === selectedYM ? " selected" : ""}>${y}년 ${Number(m)}월</option>`;
+    })
+    .join("");
+  if (!sel.dataset.wired) {
+    sel.dataset.wired = "1";
+    sel.addEventListener("change", () => {
+      selectedYM = sel.value;
+      renderQtTable();
+    });
+  }
+}
+
+// 그 달을 일요일~토요일 기준 주차로 분할. 1일이 속한 주가 1주차.
+function buildWeeks(year, month, daysInMonth) {
+  const weeks = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dow = new Date(year, month - 1, d).getDay(); // 0=일
+    if (d === 1 || dow === 0) weeks.push({ idx: weeks.length + 1, start: d, end: d, count: 0 });
+    weeks[weeks.length - 1].end = d;
+  }
+  return weeks;
+}
+
+function weeklyBreakdownHtml(year, month, daysInMonth, daySet) {
+  const weeks = buildWeeks(year, month, daysInMonth);
+  for (const d of daySet) {
+    const w = weeks.find((w) => d >= w.start && d <= w.end);
+    if (w) w.count++;
+  }
+  return (
+    `<div class="week-grid">` +
+    weeks
+      .map(
+        (w) => `<div class="week-item">
+          <span class="week-label">${month}월 ${w.idx}주차 <span class="week-range">(${month}월${w.start}일~${month}월${w.end}일)</span></span>
+          <span class="week-count${w.count ? "" : " zero"}">${w.count}회</span>
+        </div>`
+      )
+      .join("") +
+    `</div>`
+  );
+}
+
 function renderQtTable() {
+  populateMonthDropdown();
   const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
+  const [year, month] = selectedYM.split("-").map(Number);
   const daysInMonth = new Date(year, month, 0).getDate();
-  const dayToday = Math.min(now.getDate(), daysInMonth); // 오늘까지 경과 일수
+  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1;
+  const dayToday = isCurrentMonth ? Math.min(now.getDate(), daysInMonth) : daysInMonth;
 
   document.getElementById("qt-title").textContent =
     `📊 ${year}년 ${month}월 큐티 완주 현황`;
   document.getElementById("qt-meta").textContent =
-    `달성률 = 월 전체 (괄호: ${month}/${dayToday}까지)`;
+    isCurrentMonth ? `달성률 = 월 전체 (괄호: ${month}/${dayToday}까지)` : `달성률 = 월 전체`;
 
   const rows = qtNames.map((name) => {
     const posts = postsByName[name] || [];
@@ -150,25 +221,41 @@ function renderQtTable() {
     const count = uniqueDays.size;
     const rate = (count / daysInMonth) * 100;
     const todayRate = dayToday > 0 ? Math.min((count / dayToday) * 100, 100) : 0;
-    return { name, count, rate, todayRate };
+    return { name, count, rate, todayRate, days: uniqueDays };
   });
   rows.sort((a, b) => (b.rate !== a.rate ? b.rate - a.rate : a.name.localeCompare(b.name, "ko")));
 
   let html = `<table class="qt-table"><thead><tr>
-      <th>순위</th><th>성함</th><th>큐티 횟수</th><th>달성률 (오늘까지)</th><th></th></tr></thead><tbody>`;
+      <th class="caret-cell"></th><th>순위</th><th>성함</th><th>큐티 횟수</th><th>달성률${isCurrentMonth ? " (오늘까지)" : ""}</th><th></th></tr></thead><tbody>`;
   rows.forEach((r, i) => {
     const color = rateColor(r.rate);
     const todayColor = rateColor(r.todayRate);
-    html += `<tr>
+    const sub = isCurrentMonth
+      ? ` <span class="rate-sub" style="color:${todayColor};">(${r.todayRate.toFixed(1)}%)</span>`
+      : "";
+    html += `<tr class="qt-row" data-name="${esc(r.name)}" title="클릭하면 주차별 큐티 횟수">
+      <td class="caret-cell"><span class="caret">▸</span></td>
       <td class="rank">${i + 1}</td>
       <td class="name">${esc(r.name)}</td>
       <td>${r.count} / ${daysInMonth}</td>
-      <td style="color:${color}; font-weight:700;">${r.rate.toFixed(1)}% <span class="rate-sub" style="color:${todayColor};">(${r.todayRate.toFixed(1)}%)</span></td>
+      <td style="color:${color}; font-weight:700;">${r.rate.toFixed(1)}%${sub}</td>
       <td class="bar-cell"><div class="bar"><div class="bar-fill" style="width:${Math.min(r.rate, 100)}%; background:${color};"></div></div></td>
-    </tr>`;
+    </tr>
+    <tr class="qt-detail" hidden><td colspan="6">${weeklyBreakdownHtml(year, month, daysInMonth, r.days)}</td></tr>`;
   });
   html += `</tbody></table>`;
-  document.getElementById("qt-table-wrap").innerHTML = html;
+  const wrap = document.getElementById("qt-table-wrap");
+  wrap.innerHTML = html;
+
+  wrap.querySelectorAll(".qt-row").forEach((tr) => {
+    tr.addEventListener("click", () => {
+      const detail = tr.nextElementSibling;
+      if (!detail || !detail.classList.contains("qt-detail")) return;
+      const open = detail.hidden;
+      detail.hidden = !open;
+      tr.classList.toggle("expanded", open);
+    });
+  });
 }
 
 let feedList = [];

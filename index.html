@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>제자 페페로 · 큐티 모니터링</title>
+  <title>The Life 훈련 모니터링</title>
   <link rel="stylesheet" href="./css/style.css" />
 </head>
 <body>
@@ -13,8 +13,8 @@
     <!-- ===================== 로그인 화면 ===================== -->
     <section id="login-view" class="view login-view" hidden>
       <div class="login-card">
-        <h1 class="login-title">🥨 제자 페페로</h1>
-        <p class="login-subtitle">큐티 모니터링 대시보드</p>
+        <h1 class="login-title">🥨 The Life</h1>
+        <p class="login-subtitle">훈련 모니터링</p>
 
         <button id="google-login" type="button" class="btn btn-google">
           <svg class="g-icon" viewBox="0 0 18 18" aria-hidden="true">
@@ -35,7 +35,7 @@
     <section id="main-view" class="view main-view" hidden>
       <header class="topbar">
         <button id="sidebar-toggle" class="hamburger" type="button" aria-label="메뉴 열기">☰</button>
-        <div class="topbar-brand">🥨 제자 페페로 <span class="topbar-sub">큐티 모니터링</span></div>
+        <div class="topbar-brand">🥨 The Life <span class="topbar-sub">훈련 모니터링</span></div>
         <div class="topbar-user">
           <span id="user-name" class="user-name"></span>
           <button id="logout-btn" type="button" class="btn btn-ghost">로그아웃</button>
@@ -59,7 +59,10 @@
           <section class="card">
             <div class="card-head">
               <h2 id="qt-title">📊 이번 달 큐티 완주 현황</h2>
-              <span id="qt-meta" class="card-meta"></span>
+              <div class="qt-head-right">
+                <select id="qt-month" class="qt-month" aria-label="월 선택"></select>
+                <span id="qt-meta" class="card-meta"></span>
+              </div>
             </div>
             <div id="qt-table-wrap" class="table-wrap">
               <p class="muted" id="qt-loading">불러오는 중…</p>
