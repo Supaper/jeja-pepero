@@ -22,6 +22,10 @@ on:
         description: "dedupe-posts 시 특정 멤버만 (비우면 전체)"
         required: false
         default: ""
+      day:
+        description: "diagnose 시 특정 수집일 (KST, YYYY-MM-DD)"
+        required: false
+        default: ""
       force:
         description: "seed-members 시 기존 값 덮어쓰기(FORCE)"
         type: boolean
@@ -49,6 +53,7 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           ADMIN_EMAIL: ${{ inputs.admin_email }}
           MEMBER: ${{ inputs.member }}
+          DAY: ${{ inputs.day }}
           FORCE: ${{ inputs.force && '1' || '' }}
           REVOKE: ${{ inputs.action == 'revoke-admin' && '1' || '' }}
         run: |
