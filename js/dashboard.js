@@ -863,8 +863,8 @@ function buildTabs() {
 
   const tabs = [{ key: "__dash", label: "📊 대시보드" }]
     .concat(memberNames.map((n) => ({ key: n, label: n })));
-  // 관리자=전체 멤버 관리, 일반 반=자기 반 멤버 관리
-  tabs.push({ key: "__admin", label: isAdmin ? "⚙️ 멤버 관리" : "⚙️ 우리 반 관리" });
+  // 멤버 관리는 관리자 전용 (반 계정은 자기 반 데이터 열람만)
+  if (isAdmin) tabs.push({ key: "__admin", label: "⚙️ 멤버 관리" });
 
   nav.innerHTML = tabs
     .map((t) =>
