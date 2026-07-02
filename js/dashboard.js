@@ -1097,7 +1097,23 @@ function renderAdmin() {
     ? `※ <b>큐티 집계</b>=월간 큐티 완주 현황 대상 · <b>수집 대상</b>=글 자동 수집 · <b>반</b>=소속 훈련 반(로그인 단위, 과제는 반의 커리큘럼으로 채점). 변경은 다음 수집부터 반영됩니다.`
     : `※ 우리 반 멤버만 표시됩니다. 추가하는 멤버는 자동으로 이 반에 소속됩니다. <b>큐티 집계</b>=큐티 현황 대상 · <b>수집 대상</b>=글 자동 수집.`;
 
-  wrap.innerHTML =
+  // 반 이름 편집 카드 (관리자만). 이름만 바꿈 — 로그인 id·비밀번호는 그대로.
+  const classRows = Object.values(classesById).sort((a, b) => a.label.localeCompare(b.label, "ko"));
+  const classCard = isAdmin ? `<section class="card">
+      <div class="card-head"><h2>🏷️ 반 이름</h2><span class="card-meta">${classRows.length}개 반</span></div>
+      <div id="class-msg" class="muted" style="margin:8px 0;"></div>
+      ${classRows.length ? `<div class="table-wrap"><table class="qt-table"><thead><tr>
+        <th>반 id</th><th>반 이름</th><th></th></tr></thead><tbody>` +
+        classRows.map((c) => `<tr>
+          <td class="muted">${esc(c.id)}</td>
+          <td><input class="class-label" data-id="${esc(c.id)}" value="${esc(c.label)}" style="width:100%" /></td>
+          <td><button class="btn btn-ghost class-label-save" data-id="${esc(c.id)}">저장</button></td>
+        </tr>`).join("") + `</tbody></table></div>`
+        : `<p class="muted">개설된 반이 없습니다. (Actions → Admin Tools 로 반 개설)</p>`}
+      <p class="muted" style="margin-top:8px;">반 이름(표시 이름)만 바꿉니다. 반 개설/삭제·비밀번호 변경은 Actions → Admin Tools.</p>
+    </section>` : "";
+
+  wrap.innerHTML = classCard +
     `<section class="card">
       <div class="card-head"><h2>${heading}</h2>
         <span class="card-meta">총 ${memberList.length}명</span></div>
@@ -1173,6 +1189,29 @@ function renderAdmin() {
         await reloadMembersAndUi();
       } catch (e) { msg("삭제 실패: " + (e.message || e), false); }
     });
+  });
+
+  // 반 이름 저장 (관리자)
+  const cmsg = (t, ok) => {
+    const el = document.getElementById("class-msg");
+    if (el) { el.textContent = t; el.style.color = ok ? "#1a8a3c" : "#d93025"; }
+  };
+  const saveClassLabel = async (input) => {
+    const id = input.dataset.id;
+    const label = (input.value || "").trim();
+    if (!label) { cmsg("반 이름을 입력하세요.", false); return; }
+    if (label === classLabelOf(id)) return; // 변경 없음
+    try {
+      await set(ref(db, `classes/${id}/label`), label);
+      cmsg(`'${id}' 반 이름을 '${label}' 로 변경했습니다.`, true);
+      await reloadMembersAndUi();
+    } catch (e) { cmsg("변경 실패: " + (e.message || e), false); }
+  };
+  wrap.querySelectorAll(".class-label-save").forEach((btn) => {
+    btn.addEventListener("click", () => saveClassLabel(btn.closest("tr").querySelector(".class-label")));
+  });
+  wrap.querySelectorAll(".class-label").forEach((input) => {
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); saveClassLabel(input); } });
   });
 }
 
