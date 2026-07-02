@@ -347,6 +347,20 @@ html, body {
 #course-view .c-title { width: 100%; }
 .course-mgr-sel { min-width: 160px; }
 
+/* ---- 과제 내용 모달 ---- */
+.assign-modal-content {
+  margin: 4px 20px 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font: inherit;
+  resize: vertical;
+  min-height: 120px;
+  outline: none;
+}
+.assign-modal-content:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(26,115,232,.15); }
+.assign-modal-foot { display: flex; justify-content: space-between; gap: 10px; }
+
 /* 주차 글 목록 모달은 글 본문 모달보다 아래에 스택 */
 #post-modal { z-index: 50; }
 .modal-list { padding: 8px 22px 18px; overflow-y: auto; }

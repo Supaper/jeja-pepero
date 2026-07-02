@@ -141,6 +141,24 @@
           </div>
         </div>
       </div>
+
+      <!-- 과제 수동 체크: 내용 입력/확인 모달 -->
+      <div id="assign-modal" class="modal" hidden>
+        <div class="modal-box" role="dialog" aria-modal="true">
+          <button id="assign-modal-close" class="modal-close" type="button" aria-label="닫기">✕</button>
+          <div class="modal-head">
+            <span id="assign-modal-kind" class="assign-kind"></span>
+            <h3 id="assign-modal-title"></h3>
+            <div id="assign-modal-meta" class="card-meta"></div>
+          </div>
+          <textarea id="assign-modal-content" class="assign-modal-content" rows="8"
+                    placeholder="과제 내용(선택) — 적어두면 여기서 다시 볼 수 있어요"></textarea>
+          <div class="modal-foot assign-modal-foot">
+            <button id="assign-modal-uncheck" class="btn btn-ghost" type="button">체크 해제</button>
+            <button id="assign-modal-save" class="btn btn-primary" type="button">완료 체크</button>
+          </div>
+        </div>
+      </div>
     </section>
 
   </div>
