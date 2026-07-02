@@ -36,7 +36,8 @@ let postsByName = {}; // { name: [post, ...] }
 let assignStatus = {}; // { name: { assignmentId: true } }
 let qtManual = {}; // { name: { "YYYY-MM-DD": true } } — 글 없이 직접 기록한 큐티 완주일(관리자만 편집)
 let expandedQt = new Set(); // 현재 펼쳐진 큐티 행(이름) — 재렌더 후 펼침 유지
-let loaded = false;
+let wired = false; // 사이드바/모달 등 1회성 배선 완료 여부
+let currentIdentity = null; // 현재 로그인 계정 식별자(classId|admin) — 바뀌면 재초기화
 let activeKey = "__dash"; // 현재 보고 있는 탭 (__dash / __admin / 멤버 이름)
 let isAdmin = false;
 let myClassId = ""; // 로그인한 반 id (관리자는 전체 열람이므로 미사용)
@@ -1359,17 +1360,28 @@ async function loadData() {
   else if (activeKey !== "__dash") renderMember(activeKey);
 }
 
-/** 로그인 성공 후 1회 호출. */
+/** 로그인 성공 후 호출. 계정이 바뀌면(로그아웃→다른 반 로그인) 재초기화한다. */
 export async function initDashboard(profile) {
-  if (loaded) return;
-  loaded = true;
+  // 사이드바/모달 등 고정 UI 배선은 페이지당 한 번만(중복 리스너 방지).
+  if (!wired) { wireChrome(); wired = true; }
+
+  const identity = profile ? `${profile.classId}|${profile.admin ? 1 : 0}` : null;
+  // 같은 계정 재호출(토큰 갱신 등)이면 다시 로드하지 않음.
+  if (identity && identity === currentIdentity) return;
+  currentIdentity = identity;
+
+  // 계정 전환 시 이전 반의 잔여 상태 초기화.
   isAdmin = !!(profile && profile.admin);
   myClassId = (profile && profile.classId) || "";
+  activeKey = "__dash";
+  expandedQt = new Set();
+  expandedAssign = new Set();
+  postsByName = {};
+
   try {
-    wireChrome();
     await loadData();
   } catch (e) {
-    loaded = false;
+    currentIdentity = null; // 실패 시 다음 시도에서 재초기화되도록
     showNotice("⚠️ 초기화 오류: " + esc(e.message));
   }
 }
