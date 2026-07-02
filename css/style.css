@@ -330,6 +330,23 @@ html, body {
 }
 .manual-del:hover { background: rgba(53,72,181,.15); }
 
+/* ---- 커리큘럼 관리 ---- */
+#course-view .qt-table th,
+#course-view .qt-table td { padding: 6px 8px; }
+#course-view input,
+#course-view select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+  background: #fff;
+  max-width: 100%;
+}
+#course-view input:focus,
+#course-view select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(26,115,232,.15); outline: none; }
+#course-view .c-title { width: 100%; }
+.course-mgr-sel { min-width: 160px; }
+
 /* 주차 글 목록 모달은 글 본문 모달보다 아래에 스택 */
 #post-modal { z-index: 50; }
 .modal-list { padding: 8px 22px 18px; overflow-y: auto; }
