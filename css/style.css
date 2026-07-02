@@ -261,28 +261,43 @@ html, body {
 }
 .manual-qt-h { font-size: 13px; font-weight: 700; color: #374151; margin-bottom: 8px; }
 .manual-qt-h .muted { font-weight: 500; font-size: 12px; }
-.manual-qt-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.manual-date {
+.manual-qt-add { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+.manual-date,
+.manual-content {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 6px 9px;
   font-size: 13px;
   background: #fff;
+  font-family: inherit;
 }
-.manual-date:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(26,115,232,.15); outline: none; }
-.manual-qt-add .btn { padding: 6px 14px; font-size: 13px; }
+.manual-content { flex: 1 1 220px; min-width: 180px; resize: vertical; }
+.manual-date:focus,
+.manual-content:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(26,115,232,.15); outline: none; }
+.manual-qt-add .btn { padding: 6px 14px; font-size: 13px; align-self: stretch; }
 .manual-qt-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .manual-day {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   background: #eef2ff;
   color: #3548b5;
   border-radius: 999px;
-  padding: 3px 6px 3px 11px;
+  padding: 2px 4px 2px 4px;
   font-size: 12px;
   font-weight: 600;
 }
+.manual-view {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+.manual-day.has-content .manual-view { text-decoration: underline; text-underline-offset: 2px; }
+.manual-view:hover { background: rgba(53,72,181,.15); }
 .manual-del {
   border: 0;
   background: transparent;
@@ -290,7 +305,7 @@ html, body {
   cursor: pointer;
   font-size: 12px;
   line-height: 1;
-  padding: 2px 4px;
+  padding: 2px 5px;
   border-radius: 999px;
 }
 .manual-del:hover { background: rgba(53,72,181,.15); }

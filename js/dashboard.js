@@ -131,11 +131,20 @@ function openPostModal(post) {
     body.textContent = post.content; // pre-wrap CSS로 줄바꿈 유지 (안전: 텍스트로 삽입)
   } else {
     body.className = "modal-body empty";
-    body.textContent = "본문이 아직 저장되지 않았습니다. 아래 ‘원문 열기’로 확인하세요.";
+    body.textContent = post.link
+      ? "본문이 아직 저장되지 않았습니다. 아래 ‘원문 열기’로 확인하세요."
+      : "저장된 내용이 없습니다.";
   }
 
+  // 원문 링크가 있는 글에만 '원문 열기' 노출 (수동 기록은 링크 없음)
   const link = document.getElementById("modal-link");
-  link.href = post.link || "#";
+  if (post.link) {
+    link.href = post.link;
+    link.hidden = false;
+  } else {
+    link.removeAttribute("href");
+    link.hidden = true;
+  }
 
   const modal = document.getElementById("post-modal");
   modal.hidden = false;
@@ -215,17 +224,51 @@ function buildWeeks(year, month, daysInMonth) {
   return weeks;
 }
 
-// 특정 멤버의 그달 수동 완주일(day 번호 Set). qtManual/<이름>/<YYYY-MM-DD>=true.
-function manualDaysFor(name, year, month, daysInMonth) {
+// 수동 완주 기록의 내용(본문) 추출. 값은 true(레거시) 또는 { content, createdAt }.
+function manualContent(v) {
+  return (v && typeof v === "object" && typeof v.content === "string") ? v.content : "";
+}
+
+// 수동 완주 기록(YYYY-MM-DD, 내용 포함)을 글 보기 모달과 같은 형태의 유사(pseudo) 글로 변환.
+// 스크래핑 글과 동일한 postDate 표기(YYYY.MM.DD)로 맞춰 목록 정렬이 자연스럽게 섞이게 함.
+function manualToPost(name, date, v) {
+  const m = String(date).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const postDate = m ? `${m[1]}.${m[2]}.${m[3]}` : String(date);
+  return {
+    name,
+    date,
+    postDate,
+    title: `큐티 완주 (수동 기록)`,
+    content: manualContent(v),
+    link: "", // 원문 없음 → 모달에서 '원문 열기' 숨김
+    category: "수동",
+    isManual: true,
+  };
+}
+
+// 특정 멤버의 그달 수동 완주 기록 목록: [{ day, date, post }]. qtManual/<이름>/<YYYY-MM-DD>.
+function manualEntriesFor(name, year, month, daysInMonth) {
   const prefix = `${year}-${String(month).padStart(2, "0")}-`;
-  const days = new Set();
   const obj = qtManual[name] || {};
+  const out = [];
   for (const key of Object.keys(obj)) {
     if (!obj[key] || !key.startsWith(prefix)) continue;
     const d = parseInt(key.slice(prefix.length), 10);
-    if (d >= 1 && d <= daysInMonth) days.add(d);
+    if (d >= 1 && d <= daysInMonth) out.push({ day: d, date: key, post: manualToPost(name, key, obj[key]) });
   }
-  return days;
+  out.sort((a, b) => a.day - b.day);
+  return out;
+}
+
+// 한 멤버의 모든(월 무관) 수동 완주 기록을 유사 글 배열로 (멤버 글 목록용).
+function manualAllPosts(name) {
+  const obj = qtManual[name] || {};
+  const out = [];
+  for (const key of Object.keys(obj)) {
+    if (!obj[key] || !/^\d{4}-\d{2}-\d{2}$/.test(key)) continue;
+    out.push(manualToPost(name, key, obj[key]));
+  }
+  return out;
 }
 
 // 한 멤버의 선택한 달 '큐티나눔' 글과 각 글의 큐티 날짜 추출 + 수동 완주일 병합.
@@ -241,9 +284,10 @@ function memberQtData(name, year, month, daysInMonth) {
     items.push({ post: { ...p, name, category: categorize(title) }, days });
   }
   // 글 없이 직접 기록한 완주일도 집계에 포함(글 날짜와 겹치면 Set이 자동 중복 제거)
-  const manualDays = manualDaysFor(name, year, month, daysInMonth);
+  const manualEntries = manualEntriesFor(name, year, month, daysInMonth);
+  const manualDays = new Set(manualEntries.map((e) => e.day));
   for (const d of manualDays) uniqueDays.add(d);
-  return { items, uniqueDays, manualDays };
+  return { items, uniqueDays, manualDays, manualEntries };
 }
 
 // 주차별 클릭 시 보여줄 글 목록 저장소 ("이름|주차" → [post, ...])
@@ -261,13 +305,13 @@ function weeklyBreakdownHtml(name, year, month, daysInMonth, qtData) {
       const key = it.post.link || it.post.title;
       if (!seen.has(key)) { seen.add(key); posts.push(it.post); }
     }
-    // 수동 완주일도 주차 횟수에 포함(글이 없는 날이므로 별도 목록으로 표시)
-    const manualInWeek = [];
-    for (const d of qtData.manualDays || []) {
-      if (d >= w.start && d <= w.end) { daysInWeek.add(d); manualInWeek.push(d); }
+    // 수동 완주 기록도 주차 횟수에 포함(클릭 시 내용 모달로 볼 수 있게 유사 글로 보관)
+    const manualPosts = [];
+    for (const e of qtData.manualEntries || []) {
+      if (e.day >= w.start && e.day <= w.end) { daysInWeek.add(e.day); manualPosts.push(e.post); }
     }
     w.count = daysInWeek.size;
-    weekPostIndex[`${name}|${w.idx}`] = { posts, manualDays: manualInWeek.sort((a, b) => a - b), month };
+    weekPostIndex[`${name}|${w.idx}`] = { posts, manualPosts };
   }
   return (
     `<div class="week-grid">` +
@@ -287,38 +331,51 @@ function weeklyBreakdownHtml(name, year, month, daysInMonth, qtData) {
   );
 }
 
-// 관리자용: 글을 올리지 않는 멤버의 큐티 완주일을 직접 추가/삭제하는 패널.
+// 관리자용: 글을 올리지 않는 멤버의 큐티 완주일(+내용)을 직접 추가/삭제하는 패널.
 function manualEditorHtml(name, year, month, daysInMonth) {
   const mm = String(month).padStart(2, "0");
   const min = `${year}-${mm}-01`;
   const max = `${year}-${mm}-${String(daysInMonth).padStart(2, "0")}`;
-  const days = [...manualDaysFor(name, year, month, daysInMonth)].sort((a, b) => a - b);
-  const chips = days.length
-    ? days.map((d) =>
-        `<span class="manual-day">${month}월 ${d}일<button class="manual-del" data-name="${esc(name)}" data-date="${year}-${mm}-${String(d).padStart(2, "0")}" title="삭제" aria-label="삭제">✕</button></span>`
-      ).join("")
+  const entries = manualEntriesFor(name, year, month, daysInMonth);
+  const chips = entries.length
+    ? entries.map((e) => {
+        const hasContent = !!e.post.content;
+        return `<span class="manual-day${hasContent ? " has-content" : ""}">
+          <button class="manual-view" data-name="${esc(name)}" data-date="${e.date}" title="${hasContent ? "내용 보기" : "내용 없음"}">${month}월 ${e.day}일${hasContent ? " 📄" : ""}</button>
+          <button class="manual-del" data-name="${esc(name)}" data-date="${e.date}" title="삭제" aria-label="삭제">✕</button>
+        </span>`;
+      }).join("")
     : `<span class="muted">직접 추가한 완주일이 없습니다.</span>`;
   return `<div class="manual-qt">
-    <div class="manual-qt-h">✋ 수동 완주일 <span class="muted">(글을 올리지 않는 멤버의 완주일을 직접 추가)</span></div>
+    <div class="manual-qt-h">✋ 수동 완주일 <span class="muted">(글을 올리지 않는 멤버의 완주일을 직접 추가 · 내용은 선택)</span></div>
     <div class="manual-qt-add">
       <input type="date" class="manual-date" min="${min}" max="${max}" />
+      <textarea class="manual-content" rows="2" placeholder="내용(선택) — 적어두면 클릭해서 볼 수 있어요"></textarea>
       <button class="btn btn-primary manual-add" data-name="${esc(name)}">추가</button>
     </div>
     <div class="manual-qt-list">${chips}</div>
   </div>`;
 }
 
-// 수동 완주일 저장/삭제 후 표를 다시 그림(펼침 상태는 expandedQt 로 유지).
-async function saveManualDay(name, date, want) {
+// 수동 완주 기록 저장/삭제 후 표를 다시 그림(펼침 상태는 expandedQt 로 유지).
+// 값: 내용이 있으면 { content, createdAt }, 없으면 true (레거시 호환).
+async function saveManualDay(name, date, want, content) {
+  const text = (content || "").trim();
+  const value = want ? (text ? { content: text, createdAt: new Date().toISOString() } : true) : null;
   try {
-    await set(ref(db, `qtManual/${name}/${date}`), want ? true : null);
+    await set(ref(db, `qtManual/${name}/${date}`), value);
     if (!qtManual[name]) qtManual[name] = {};
-    if (want) qtManual[name][date] = true; else delete qtManual[name][date];
+    if (want) qtManual[name][date] = value; else delete qtManual[name][date];
     renderQtTable();
   } catch (e) {
     alert((want ? "추가" : "삭제") + " 실패: " + (e.message || e) +
       "\n(관리자 권한 + RTDB qtManual write 규칙이 필요합니다)");
   }
+}
+
+// 수동 기록 클릭 시 내용 모달 열기 (저장된 값에서 내용을 읽어 유사 글로 표시).
+function openManualModal(name, date) {
+  openPostModal(manualToPost(name, date, (qtManual[name] || {})[date]));
 }
 
 function renderQtTable() {
@@ -391,54 +448,51 @@ function renderQtTable() {
     });
   });
 
-  // 관리자 수동 완주일 추가/삭제
+  // 관리자 수동 완주일 추가/삭제/보기
   wrap.querySelectorAll(".manual-add").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const input = btn.closest(".manual-qt-add").querySelector(".manual-date");
+      const box = btn.closest(".manual-qt-add");
+      const input = box.querySelector(".manual-date");
+      const ta = box.querySelector(".manual-content");
       const date = input && input.value;
       if (!date) { alert("추가할 날짜를 선택하세요."); return; }
-      saveManualDay(btn.dataset.name, date, true);
+      saveManualDay(btn.dataset.name, date, true, ta ? ta.value : "");
     });
   });
   wrap.querySelectorAll(".manual-del").forEach((btn) => {
     btn.addEventListener("click", () => saveManualDay(btn.dataset.name, btn.dataset.date, false));
   });
+  wrap.querySelectorAll(".manual-view").forEach((btn) => {
+    btn.addEventListener("click", () => openManualModal(btn.dataset.name, btn.dataset.date));
+  });
 }
 
 /* ===================== 주차별 글 목록 모달 ===================== */
 function openWeekModal(name, weekIdx) {
-  const entry = weekPostIndex[`${name}|${weekIdx}`] || { posts: [], manualDays: [] };
+  const entry = weekPostIndex[`${name}|${weekIdx}`] || { posts: [], manualPosts: [] };
   const posts = entry.posts || [];
-  const manualDays = entry.manualDays || [];
+  const manualPosts = entry.manualPosts || [];
+  const all = [...posts, ...manualPosts]; // 스크래핑 글 + 수동 기록 (둘 다 클릭 시 내용 모달)
   const [, month] = selectedYM.split("-").map(Number);
   document.getElementById("week-modal-title").textContent =
     `${name} · ${month}월 ${weekIdx}주차 큐티 글`;
   document.getElementById("week-modal-meta").textContent =
-    `글 ${posts.length}건` + (manualDays.length ? ` · 수동 ${manualDays.length}일` : "");
+    `글 ${posts.length}건` + (manualPosts.length ? ` · 수동 ${manualPosts.length}건` : "");
 
   const body = document.getElementById("week-modal-body");
-  let inner = "";
-  if (posts.length) {
-    inner +=
+  if (!all.length) {
+    body.innerHTML = `<p class="muted" style="padding:8px 0;">표시할 글이 없습니다.</p>`;
+  } else {
+    body.innerHTML =
       `<ul class="post-list">` +
-      posts.map((p, i) => `<li>
+      all.map((p, i) => `<li>
           <span class="post-date">${esc(p.postDate || "")}</span>
           ${catBadge(p.category || categorize(p.title))}
           ${postLinkHtml("week", i, p.title)}
         </li>`).join("") +
       `</ul>`;
+    wirePostClicks(body, all);
   }
-  if (manualDays.length) {
-    inner +=
-      `<ul class="post-list">` +
-      manualDays.map((d) => `<li>
-          <span class="post-date">${month}월 ${d}일</span>
-          ${catBadge("수동 기록")}
-        </li>`).join("") +
-      `</ul>`;
-  }
-  body.innerHTML = inner || `<p class="muted" style="padding:8px 0;">표시할 글이 없습니다.</p>`;
-  if (posts.length) wirePostClicks(body, posts);
 
   document.getElementById("week-modal").hidden = false;
   document.body.style.overflow = "hidden";
@@ -694,6 +748,8 @@ function renderMember(name) {
   memberPosts = (postsByName[name] || [])
     .filter((p) => p && p.title)
     .map((p) => ({ ...p, name, category: categorize(p.title) }))
+    // 수동 완주 기록도 '수동' 태그를 달아 함께 표시(클릭 시 내용 모달)
+    .concat(manualAllPosts(name))
     .sort((a, b) =>
       String(b.postDate || "").localeCompare(String(a.postDate || "")) ||
       String(b.collectedAt || "").localeCompare(String(a.collectedAt || ""))
