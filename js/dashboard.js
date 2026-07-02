@@ -40,40 +40,76 @@ let expandedQt = new Set(); // 현재 펼쳐진 큐티 행(이름) — 재렌더
 let loaded = false;
 let activeKey = "__dash"; // 현재 보고 있는 탭 (__dash / __admin / 멤버 이름)
 let isAdmin = false;
-let memberList = []; // [{name, qt, active, course}] 전체
+let myClassId = ""; // 로그인한 반 id (관리자는 전체 열람이므로 미사용)
+let classesById = {}; // { classId: { id, label, courseId, active } } — 훈련 반(로그인 단위)
+let memberList = []; // [{name, qt, active, class}] — 스코프 적용된 목록
 let memberNames = []; // 수집/표시 대상 (active)
 let qtNames = []; // 큐티 집계 대상 (qt)
 
-// RTDB /members 로드. 없으면 config 기본값으로 폴백.
-async function loadMemberList() {
+// RTDB /classes 로드 → classesById. 반(로그인 단위)이며 courseId 로 커리큘럼(과제) 연결.
+async function loadClassesMap() {
+  const map = {};
+  try {
+    const snap = await get(ref(db, "classes"));
+    if (snap.exists()) {
+      for (const [id, c] of Object.entries(snap.val())) {
+        if (!c || typeof c !== "object") continue;
+        map[id] = {
+          id,
+          label: c.label || id,
+          courseId: c.courseId || "",
+          active: !(c.active === false),
+        };
+      }
+    }
+  } catch (_) { /* 없으면 빈 맵 */ }
+  return map;
+}
+
+// 멤버의 소속 반 id. class 우선, 없으면 예전 course 값을 반 id 로 간주(마이그레이션 호환).
+function memberClassId(m) {
+  return (m && m.class) || (m && m.course) || "";
+}
+// 멤버의 채점 커리큘럼(course) — 반의 courseId, 없으면 예전 course 값 폴백.
+function memberCourseId(m) {
+  const cid = memberClassId(m);
+  const cls = classesById[cid];
+  return (cls && cls.courseId) || (m && m.course) || "";
+}
+
+// RTDB /members 로드 → [{name, qt, active, class}]. 없으면 config 기본값으로 폴백.
+async function loadMemberListRaw() {
   try {
     const snap = await get(ref(db, "members"));
     if (snap.exists()) {
       const val = snap.val();
-      const defCourse = COURSES[0] ? COURSES[0].id : "";
       const list = Object.entries(val)
-        .map(([key, m]) => {
-          const qt = !(m && m.qt === false);
-          return {
-            name: (m && m.name) || key,
-            qt,
-            active: !(m && m.active === false),
-            // course 미지정 시: 큐티 대상은 기본 과정, 그 외(예: 다른 기수)는 미배정
-            course: (m && typeof m.course === "string") ? m.course : (qt ? defCourse : ""),
-          };
-        })
+        .map(([key, m]) => ({
+          name: (m && m.name) || key,
+          qt: !(m && m.qt === false),
+          active: !(m && m.active === false),
+          // class 우선, 없으면 예전 course 를 반 id 로 간주
+          class: (m && typeof m.class === "string") ? m.class
+            : (m && typeof m.course === "string") ? m.course : "",
+        }))
         .filter((m) => m.name)
         .sort((a, b) => a.name.localeCompare(b.name, "ko"));
       if (list.length) return list;
     }
   } catch (_) { /* 폴백 */ }
-  const defCourse = COURSES[0] ? COURSES[0].id : "";
+  const defClass = COURSES[0] ? COURSES[0].id : "";
   return TARGET_NAMES.map((n) => ({
     name: n,
     qt: QT_TARGET_NAMES.includes(n),
     active: true,
-    course: QT_TARGET_NAMES.includes(n) ? defCourse : "",
+    class: QT_TARGET_NAMES.includes(n) ? defClass : "",
   }));
+}
+
+// 로그인한 반으로 스코프: 관리자는 전체, 일반 반은 자기 반 멤버만.
+function scopeMembers(all) {
+  if (isAdmin) return all;
+  return all.filter((m) => memberClassId(m) === myClassId);
 }
 
 // 공지글 제거 + 게시글 번호(num) 기준 중복 제거(본문 있는 항목 우선).
@@ -596,7 +632,7 @@ function assignCounts(name, all, today) {
 function updateAssignRow(name, today) {
   const wrap = document.getElementById("assign-table-wrap");
   const m = memberList.find((x) => x.name === name);
-  const course = m && findCourse(m.course);
+  const course = m && findCourse(memberCourseId(m));
   if (!course) return;
   const all = courseAssignments(course);
   const dueSoFar = all.filter((it) => it.due <= today).length;
@@ -637,15 +673,27 @@ function renderAssignTable() {
   if (!wrap) return;
   const today = todayISO();
 
-  // 수집 대상(active) 멤버를 과정별로 묶기
+  // 수집 대상(active) 멤버를 반(class)별로 묶고, 반의 커리큘럼(course)으로 채점.
   const active = memberList.filter((m) => m.active);
-  const sections = COURSES
-    .map((course) => ({ course, names: active.filter((m) => m.course === course.id).map((m) => m.name) }))
-    .filter((s) => s.names.length);
+  const byClass = new Map();
+  for (const m of active) {
+    const cid = memberClassId(m);
+    if (!byClass.has(cid)) byClass.set(cid, []);
+    byClass.get(cid).push(m.name);
+  }
+  const sections = [];
+  for (const [cid, names] of byClass) {
+    const cls = classesById[cid];
+    // 반이 등록돼 있으면 반의 courseId, 아니면 예전 course id(cid) 를 커리큘럼으로 폴백
+    const course = findCourse(cls ? cls.courseId : cid);
+    if (!course) continue; // 커리큘럼 없는 반은 과제 채점 대상 아님(큐티엔 계속 표시)
+    sections.push({ course, names, label: (cls && cls.label) || cid });
+  }
+  sections.sort((a, b) => a.label.localeCompare(b.label, "ko"));
 
   if (!sections.length) {
     document.getElementById("assign-meta").textContent = "";
-    wrap.innerHTML = `<p class="muted">과정이 배정된 멤버가 없습니다. ‘⚙️ 멤버 관리’에서 각 멤버의 과정을 지정하세요.</p>`;
+    wrap.innerHTML = `<p class="muted">과제를 채점할 반이 없습니다. ‘⚙️ 멤버 관리’에서 멤버의 반을 지정하고, 반에 커리큘럼(과정)이 연결돼 있는지 확인하세요.</p>`;
     return;
   }
   document.getElementById("assign-meta").textContent =
@@ -654,7 +702,7 @@ function renderAssignTable() {
   buildAutoAssign(sections);
 
   let html = "";
-  for (const { course, names } of sections) {
+  for (const { course, names, label } of sections) {
     const all = courseAssignments(course);
     const dueSoFar = all.filter((it) => it.due <= today).length;
     const total = all.length;
@@ -668,7 +716,7 @@ function renderAssignTable() {
     rows.sort((a, b) => (b.rate !== a.rate ? b.rate - a.rate : a.name.localeCompare(b.name, "ko")));
 
     html += `<div class="assign-course">
-      <h3 class="assign-course-h">${esc(course.label)} <span class="card-meta">마감 도래 ${dueSoFar} / 전체 ${total}</span></h3>
+      <h3 class="assign-course-h">${esc(label)} <span class="card-meta">${esc(course.label)} · 마감 도래 ${dueSoFar} / 전체 ${total}</span></h3>
       <table class="qt-table"><thead><tr>
         <th class="caret-cell"></th><th>순위</th><th>성함</th><th>완료(마감도래)</th><th>완주율 (전체)</th></tr></thead><tbody>`;
     rows.forEach((r, i) => {
@@ -815,7 +863,8 @@ function buildTabs() {
 
   const tabs = [{ key: "__dash", label: "📊 대시보드" }]
     .concat(memberNames.map((n) => ({ key: n, label: n })));
-  if (isAdmin) tabs.push({ key: "__admin", label: "⚙️ 멤버 관리" });
+  // 관리자=전체 멤버 관리, 일반 반=자기 반 멤버 관리
+  tabs.push({ key: "__admin", label: isAdmin ? "⚙️ 멤버 관리" : "⚙️ 우리 반 관리" });
 
   nav.innerHTML = tabs
     .map((t) =>
@@ -859,19 +908,35 @@ function wireChrome() {
   });
 }
 
-/* ===================== 멤버 관리 (관리자) ===================== */
-function courseOptionsHtml(sel) {
-  return [`<option value=""${!sel ? " selected" : ""}>해당없음</option>`]
-    .concat(COURSES.map((c) =>
+/* ===================== 멤버 관리 (관리자 = 전체 / 일반 반 = 자기 반) ===================== */
+function classOptionsHtml(sel) {
+  const list = Object.values(classesById).sort((a, b) => a.label.localeCompare(b.label, "ko"));
+  return [`<option value=""${!sel ? " selected" : ""}>미배정</option>`]
+    .concat(list.map((c) =>
       `<option value="${esc(c.id)}"${c.id === sel ? " selected" : ""}>${esc(c.label)}</option>`))
     .join("");
 }
 
+function classLabelOf(classId) {
+  const c = classesById[classId];
+  return (c && c.label) || classId || "미배정";
+}
+
 function renderAdmin() {
   const wrap = document.getElementById("admin-view");
+  // 반 셀: 관리자는 반 선택 드롭다운, 일반 반은 자기 반 고정 표시
+  const classCell = (m) => isAdmin
+    ? `<td><select class="class-select" data-name="${esc(m.name)}">${classOptionsHtml(memberClassId(m))}</select></td>`
+    : `<td class="muted">${esc(classLabelOf(memberClassId(m)))}</td>`;
+
+  const heading = isAdmin ? "⚙️ 멤버 관리 (전체 반)" : `⚙️ ${esc(classLabelOf(myClassId))} 멤버 관리`;
+  const help = isAdmin
+    ? `※ <b>큐티 집계</b>=월간 큐티 완주 현황 대상 · <b>수집 대상</b>=글 자동 수집 · <b>반</b>=소속 훈련 반(로그인 단위, 과제는 반의 커리큘럼으로 채점). 변경은 다음 수집부터 반영됩니다.`
+    : `※ 우리 반 멤버만 표시됩니다. 추가하는 멤버는 자동으로 이 반에 소속됩니다. <b>큐티 집계</b>=큐티 현황 대상 · <b>수집 대상</b>=글 자동 수집.`;
+
   wrap.innerHTML =
     `<section class="card">
-      <div class="card-head"><h2>⚙️ 멤버 관리</h2>
+      <div class="card-head"><h2>${heading}</h2>
         <span class="card-meta">총 ${memberList.length}명</span></div>
       <div class="add-row">
         <input id="new-member" type="text" placeholder="추가할 이름 (게시판 검색명과 동일)" />
@@ -879,19 +944,17 @@ function renderAdmin() {
       </div>
       <div id="admin-msg" class="muted" style="margin:8px 0;"></div>
       <div class="table-wrap"><table class="qt-table"><thead><tr>
-        <th>이름</th><th>큐티 집계</th><th>수집 대상</th><th>훈련과정</th><th></th>
+        <th>이름</th><th>큐티 집계</th><th>수집 대상</th><th>반</th><th></th>
       </tr></thead><tbody>` +
       memberList.map((m) => `<tr>
         <td class="name">${esc(m.name)}</td>
         <td><input type="checkbox" data-act="qt" data-name="${esc(m.name)}" ${m.qt ? "checked" : ""} /></td>
         <td><input type="checkbox" data-act="active" data-name="${esc(m.name)}" ${m.active ? "checked" : ""} /></td>
-        <td><select class="course-select" data-name="${esc(m.name)}">${courseOptionsHtml(m.course)}</select></td>
+        ${classCell(m)}
         <td><button class="btn btn-ghost btn-del" data-name="${esc(m.name)}">삭제</button></td>
       </tr>`).join("") +
       `</tbody></table></div>
-      <p class="muted" style="margin-top:12px;">※ <b>큐티 집계</b>=월간 큐티 완주 현황 대상 · <b>수집 대상</b>=글 자동 수집 ·
-      <b>훈련과정</b>=과제 현황에서 채점할 과정(다른 기수는 ‘해당없음’ 또는 다른 과정 선택).
-      변경은 다음 수집부터 반영됩니다. 권한 오류가 나면 관리자 클레임을 확인하세요(README).</p>
+      <p class="muted" style="margin-top:12px;">${help} 권한 오류가 나면 로그인/규칙 설정을 확인하세요(README).</p>
     </section>`;
 
   const msg = (t, ok) => {
@@ -905,8 +968,9 @@ function renderAdmin() {
     if (memberList.some((m) => m.name === name)) { msg("이미 있는 이름입니다.", false); return; }
     try {
       await ensureSeeded();
-      const course = COURSES[0] ? COURSES[0].id : "";
-      await set(ref(db, "members/" + name), { name, qt: true, active: true, course, createdAt: new Date().toISOString() });
+      // 일반 반은 자기 반, 관리자는 미배정으로 추가(이후 반 선택으로 지정)
+      const cls = isAdmin ? "" : myClassId;
+      await set(ref(db, "members/" + name), { name, qt: true, active: true, class: cls, createdAt: new Date().toISOString() });
       msg(`'${name}' 추가됨`, true);
       await reloadMembersAndUi();
     } catch (e) { msg("추가 실패: " + (e.message || e), false); }
@@ -923,13 +987,13 @@ function renderAdmin() {
     });
   });
 
-  wrap.querySelectorAll(".course-select").forEach((sel) => {
+  wrap.querySelectorAll(".class-select").forEach((sel) => {
     const prev = sel.value;
     sel.addEventListener("change", async () => {
       const name = sel.dataset.name;
       try {
         await ensureSeeded();
-        await update(ref(db, "members/" + name), { course: sel.value });
+        await update(ref(db, "members/" + name), { class: sel.value });
         await reloadMembersAndUi();
       } catch (e) { sel.value = prev; msg("변경 실패: " + (e.message || e), false); }
     });
@@ -956,15 +1020,21 @@ async function ensureSeeded() {
   if (snap.exists()) return;
   const updates = {};
   for (const m of memberList) {
-    updates[m.name] = { name: m.name, qt: m.qt, active: m.active, course: m.course || "" };
+    updates[m.name] = { name: m.name, qt: m.qt, active: m.active, class: memberClassId(m) };
   }
   if (Object.keys(updates).length) await update(ref(db, "members"), updates);
 }
 
-async function reloadMembersAndUi() {
-  memberList = await loadMemberList();
+// 멤버 목록을 다시 읽고(스코프 적용) 파생 목록/화면 갱신.
+async function refreshMemberScope() {
+  memberList = scopeMembers(await loadMemberListRaw());
   memberNames = memberList.filter((m) => m.active).map((m) => m.name);
   qtNames = memberList.filter((m) => m.qt).map((m) => m.name);
+}
+
+async function reloadMembersAndUi() {
+  classesById = await loadClassesMap();
+  await refreshMemberScope();
   buildTabs();
   renderQtTable();
   renderAssignTable();
@@ -975,9 +1045,8 @@ async function reloadMembersAndUi() {
 async function loadData() {
   document.getElementById("notice").hidden = true;
 
-  memberList = await loadMemberList();
-  memberNames = memberList.filter((m) => m.active).map((m) => m.name);
-  qtNames = memberList.filter((m) => m.qt).map((m) => m.name);
+  classesById = await loadClassesMap();
+  await refreshMemberScope();
 
   const { result, firstError } = await loadAllPosts(memberNames);
   postsByName = result;
@@ -998,8 +1067,8 @@ async function loadData() {
     if (/permission|denied/i.test(msg)) {
       showNotice(
         "⚠️ 데이터 읽기 권한이 없습니다. <b>Realtime Database → 규칙</b>에서 " +
-        "<code>posts</code>·<code>members</code>·<code>users</code> 의 <code>.read</code> 를 " +
-        "<code>\"auth != null\"</code> 로 설정해 게시하세요."
+        "<code>posts</code>·<code>members</code> 의 <code>.read</code> 를 " +
+        "<code>\"auth != null\"</code> 로, <code>classes</code> 는 공개 읽기로 설정해 게시하세요(README)."
       );
     } else {
       showNotice("⚠️ 데이터를 불러오지 못했습니다: " + esc(msg));
@@ -1019,6 +1088,7 @@ export async function initDashboard(profile) {
   if (loaded) return;
   loaded = true;
   isAdmin = !!(profile && profile.admin);
+  myClassId = (profile && profile.classId) || "";
   try {
     wireChrome();
     await loadData();
