@@ -68,7 +68,8 @@ The web app's `js/firebase-config.js` `apiKey` is a public client value by desig
 - `posts/<name>/<pushKey>: { collectedAt, postDate, title, link, content }`
 - `state/<name>/lastTitle` — dedup checkpoint: collection walks newest→oldest and **breaks** when it hits `lastTitle`, then reverses the fresh batch to write oldest→newest.
 - `members/<name>: { name, qt, active, class }` — `qt` = counts toward QT aggregation, `active` = gets scraped, `class` = training-class id (login unit; falls back to legacy `course` if `class` absent). Assignment grading uses the class's `courseId` curriculum.
-- `classes/<classId>: { label, courseId, active }` — training classes (login units); **publicly readable** so the login dropdown can list them before auth. Passwords live in Firebase Auth, not here. Managed by `scripts/manage-class.js` (Actions).
+- `classes/<classId>: { label, courseId, active, due }` — training classes (login units); **publicly readable** so the login dropdown can list them before auth. Passwords live in Firebase Auth, not here. Managed by `scripts/manage-class.js` (Actions). `due/<taskId>` holds per-class assignment due-date overrides.
+- `courses/<courseId>: { label, tasks: { <taskId>: { title, kind, group, order, due, m, x } } }` — assignment curricula, edited in the web **📚 커리큘럼 관리** (admin). `js/assignments.js` `COURSES` is only the initial seed used when `/courses` is empty.
 - `assignments/<name>/<assignmentId>: true` — manual assignment checkboxes (any logged-in member may write).
 - `state/*` is server-only (rules deny client read/write). (The legacy `/users` allowlist node is no longer used.)
 
@@ -80,7 +81,7 @@ The web app's `js/firebase-config.js` `apiKey` is a public client value by desig
 
 3. **QT completion is counted by the date *in the post title*, not the collection date.** Aggregation dedups days via a `Set` (distinct days ÷ days-in-month).
 
-4. **Assignment curricula live entirely in `js/assignments.js`.** To add/change a curriculum (`COURSES`) or its weekly tasks, edit the `COURSES` array only. Each task carries keyword lists (`m` = match keywords, `x` = exclude) used to auto-match scraped `[훈련나눔]` post titles; tasks with no keywords (e.g. pledge forms) are manual checkboxes. A member is graded against their **class's** `courseId` curriculum (classes are runtime data in `/classes`, not code; multiple classes can share one curriculum).
+4. **Assignment curricula are runtime data in RTDB `/courses`**, edited via the web 커리큘럼 관리 screen. `js/assignments.js` `COURSES` is the **seed** written to `/courses` on first admin edit (`ensureCourseSeeded`); the dashboard merges code seed with RTDB (RTDB wins). Each task carries keyword lists (`m` = match, `x` = exclude) for auto-matching scraped `[훈련나눔]` titles; tasks with no keywords are manual checkboxes. **Due dates are per-class overrides** (`classes/<id>/due/<taskId>`), so one curriculum shared by several classes (e.g. 사역 토요반/일요반) differs only in due dates. Preserve existing task ids when editing the seed — `assignments/<name>/<taskId>` checkboxes key off them.
 
 5. **KST (Asia/Seoul) is the fixed timezone** for date boundaries and cron scheduling. `daily-collect.yml` cron is written in UTC but targets KST 06–23h.
 

@@ -17,8 +17,7 @@ import {
 } from "./config.js";
 import {
   COURSES,
-  findCourse,
-  courseAssignments,
+  courseSeed,
   assignKindColor,
 } from "./assignments.js";
 
@@ -41,7 +40,10 @@ let loaded = false;
 let activeKey = "__dash"; // 현재 보고 있는 탭 (__dash / __admin / 멤버 이름)
 let isAdmin = false;
 let myClassId = ""; // 로그인한 반 id (관리자는 전체 열람이므로 미사용)
-let classesById = {}; // { classId: { id, label, courseId, active } } — 훈련 반(로그인 단위)
+let classesById = {}; // { classId: { id, label, courseId, active, due } } — 훈련 반(로그인 단위)
+let coursesById = {}; // { courseId: { id, label, tasks: [{id,title,kind,group,order,due,m,x}] } } — 커리큘럼
+let courseSel = ""; // 커리큘럼 관리에서 선택된 courseId
+let dueTargetSel = ""; // 마감일 편집 대상: "" = 커리큘럼 기본, 아니면 classId(반별)
 let memberList = []; // [{name, qt, active, class}] — 스코프 적용된 목록
 let memberNames = []; // 수집/표시 대상 (active)
 let qtNames = []; // 큐티 집계 대상 (qt)
@@ -59,6 +61,7 @@ async function loadClassesMap() {
           label: c.label || id,
           courseId: c.courseId || "",
           active: !(c.active === false),
+          due: (c.due && typeof c.due === "object") ? c.due : {}, // 반별 마감일 오버레이 {taskId: "YYYY-MM-DD"}
         };
       }
     }
@@ -66,15 +69,60 @@ async function loadClassesMap() {
   return map;
 }
 
+// RTDB /courses 로드 → coursesById. 없는 코스는 코드 시드(COURSES)로 폴백.
+async function loadCoursesMap() {
+  const map = {};
+  // 1) 코드 시드로 기본 채움 (RTDB 미시드 코스도 동작)
+  for (const c of COURSES) {
+    const seed = courseSeed(c);
+    map[c.id] = { id: c.id, label: seed.label, tasks: tasksFromObj(seed.tasks) };
+  }
+  // 2) RTDB 값으로 덮어씀 (편집된 커리큘럼이 우선)
+  try {
+    const snap = await get(ref(db, "courses"));
+    if (snap.exists()) {
+      for (const [id, c] of Object.entries(snap.val())) {
+        if (!c || typeof c !== "object") continue;
+        map[id] = { id, label: c.label || id, tasks: tasksFromObj(c.tasks || {}) };
+      }
+    }
+  } catch (_) { /* 시드만 사용 */ }
+  return map;
+}
+
+// tasks 객체({id:{...}}) → 배열(order 정렬), 필드 보정.
+function tasksFromObj(obj) {
+  return Object.entries(obj || {})
+    .map(([id, t]) => ({
+      id,
+      title: (t && t.title) || "",
+      kind: (t && t.kind) || "기타",
+      group: (t && t.group) || "",
+      order: (t && typeof t.order === "number") ? t.order : 0,
+      due: (t && t.due) || "",
+      m: (t && Array.isArray(t.m)) ? t.m : [],
+      x: (t && Array.isArray(t.x)) ? t.x : [],
+    }))
+    .sort((a, b) => (a.order - b.order) || a.id.localeCompare(b.id));
+}
+
 // 멤버의 소속 반 id. class 우선, 없으면 예전 course 값을 반 id 로 간주(마이그레이션 호환).
 function memberClassId(m) {
   return (m && m.class) || (m && m.course) || "";
 }
-// 멤버의 채점 커리큘럼(course) — 반의 courseId, 없으면 예전 course 값 폴백.
+// 멤버의 채점 커리큘럼(course) id — 반의 courseId, 없으면 예전 course 값 폴백.
 function memberCourseId(m) {
   const cid = memberClassId(m);
   const cls = classesById[cid];
   return (cls && cls.courseId) || (m && m.course) || "";
+}
+
+// (courseId, classId) → 과제 목록에 그 반의 마감일 오버레이를 적용한 배열.
+function effectiveTasks(courseId, classId) {
+  const c = coursesById[courseId];
+  if (!c) return [];
+  const dueMap = (classesById[classId] && classesById[classId].due) || {};
+  return c.tasks.map((t) => ({ ...t, due: dueMap[t.id] || t.due || "" }));
 }
 
 // RTDB /members 로드 → [{name, qt, active, class}]. 없으면 config 기본값으로 폴백.
@@ -592,16 +640,14 @@ function trainingPosts(name) {
     .map((p) => ({ post: { ...p, name, category: "훈련나눔" }, n: normTitle(p.title) }));
 }
 
-// 과정별 섹션({course, names})을 받아 멤버별 자동 매칭(autoAssign) 구성.
-// 멤버는 자기 과정의 과제에 대해서만 매칭됩니다.
+// 반별 섹션({tasks, names})을 받아 멤버별 자동 매칭(autoAssign) 구성.
 function buildAutoAssign(sections) {
   autoAssign = {};
-  for (const { course, names } of sections) {
-    const all = courseAssignments(course);
+  for (const { tasks, names } of sections) {
     for (const name of names) {
       const tps = trainingPosts(name);
       const map = {};
-      for (const it of all) {
+      for (const it of tasks) {
         if (!it.m || !it.m.length) continue;
         for (const tp of tps) {
           if (it.x && it.x.some((xk) => tp.n.includes(xk))) continue;
@@ -618,16 +664,25 @@ function assignKindBadge(kind) {
   return `<span class="assign-kind" style="background:${bg}; color:${fg};">${esc(kind)}</span>`;
 }
 
-function assignChecklistHtml(name, course, today) {
+// tasks(효과 적용된 과제 배열)를 그룹별로 렌더. 마감일 미정 항목은 '미정' 표시(연체 아님).
+function assignChecklistHtml(name, tasks, today) {
   const st = assignStatus[name] || {};
   const auto = autoAssign[name] || {};
-  return course.groups.map((g) => {
-    const items = g.items.map((it) => {
+  const order = [];
+  const byGroup = new Map();
+  for (const it of tasks) {
+    const g = it.group || "";
+    if (!byGroup.has(g)) { byGroup.set(g, []); order.push(g); }
+    byGroup.get(g).push(it);
+  }
+  return order.map((g) => {
+    const items = byGroup.get(g).map((it) => {
       const autoPost = auto[it.id];
       const manual = !!st[it.id];
       const done = !!autoPost || manual;
-      const overdue = !done && it.due < today;
-      const dueLabel = it.due.slice(5).replace("-", "/");
+      const hasDue = !!it.due;
+      const overdue = hasDue && !done && it.due < today;
+      const dueLabel = hasDue ? it.due.slice(5).replace("-", "/") : "미정";
       if (autoPost) {
         return `<div class="assign-item auto" data-name="${esc(name)}" data-id="${esc(it.id)}" title="수집된 글로 자동 완료 · 클릭하면 글 보기">
           <span class="assign-box done">✓</span>
@@ -644,16 +699,16 @@ function assignChecklistHtml(name, course, today) {
         <span class="assign-due">~${dueLabel}</span>
       </label>`;
     }).join("");
-    return `<div class="assign-group"><div class="assign-group-h">${esc(g.label)}</div>${items}</div>`;
+    return `<div class="assign-group"><div class="assign-group-h">${esc(g || "과제")}</div>${items}</div>`;
   }).join("");
 }
 
-function assignCounts(name, all, today) {
+function assignCounts(name, tasks, today) {
   const st = assignStatus[name] || {};
   const auto = autoAssign[name] || {};
   let done = 0, doneDue = 0;
-  for (const it of all) {
-    if (auto[it.id] || st[it.id]) { done++; if (it.due <= today) doneDue++; }
+  for (const it of tasks) {
+    if (auto[it.id] || st[it.id]) { done++; if (it.due && it.due <= today) doneDue++; }
   }
   return { done, doneDue };
 }
@@ -661,12 +716,12 @@ function assignCounts(name, all, today) {
 function updateAssignRow(name, today) {
   const wrap = document.getElementById("assign-table-wrap");
   const m = memberList.find((x) => x.name === name);
-  const course = m && findCourse(memberCourseId(m));
-  if (!course) return;
-  const all = courseAssignments(course);
-  const dueSoFar = all.filter((it) => it.due <= today).length;
-  const total = all.length;
-  const { done, doneDue } = assignCounts(name, all, today);
+  if (!m) return;
+  const tasks = effectiveTasks(memberCourseId(m), memberClassId(m));
+  if (!tasks.length) return;
+  const dueSoFar = tasks.filter((it) => it.due && it.due <= today).length;
+  const total = tasks.length;
+  const { done, doneDue } = assignCounts(name, tasks, today);
   const rate = dueSoFar > 0 ? (doneDue / dueSoFar) * 100 : 0;
   const totalRate = total > 0 ? (done / total) * 100 : 0;
   for (const tr of wrap.querySelectorAll(".assign-row")) {
@@ -714,9 +769,11 @@ function renderAssignTable() {
   for (const [cid, names] of byClass) {
     const cls = classesById[cid];
     // 반이 등록돼 있으면 반의 courseId, 아니면 예전 course id(cid) 를 커리큘럼으로 폴백
-    const course = findCourse(cls ? cls.courseId : cid);
-    if (!course) continue; // 커리큘럼 없는 반은 과제 채점 대상 아님(큐티엔 계속 표시)
-    sections.push({ course, names, label: (cls && cls.label) || cid });
+    const courseId = cls ? cls.courseId : cid;
+    const tasks = effectiveTasks(courseId, cid);
+    if (!tasks.length) continue; // 커리큘럼 없는 반은 과제 채점 대상 아님(큐티엔 계속 표시)
+    const course = coursesById[courseId];
+    sections.push({ tasks, names, label: (cls && cls.label) || cid, courseLabel: (course && course.label) || courseId });
   }
   sections.sort((a, b) => a.label.localeCompare(b.label, "ko"));
 
@@ -731,13 +788,12 @@ function renderAssignTable() {
   buildAutoAssign(sections);
 
   let html = "";
-  for (const { course, names, label } of sections) {
-    const all = courseAssignments(course);
-    const dueSoFar = all.filter((it) => it.due <= today).length;
-    const total = all.length;
+  for (const { tasks, names, label, courseLabel } of sections) {
+    const dueSoFar = tasks.filter((it) => it.due && it.due <= today).length;
+    const total = tasks.length;
 
     const rows = names.map((name) => {
-      const { done, doneDue } = assignCounts(name, all, today);
+      const { done, doneDue } = assignCounts(name, tasks, today);
       const rate = dueSoFar > 0 ? (doneDue / dueSoFar) * 100 : 0;
       const totalRate = total > 0 ? (done / total) * 100 : 0;
       return { name, doneDue, rate, totalRate };
@@ -745,7 +801,7 @@ function renderAssignTable() {
     rows.sort((a, b) => (b.rate !== a.rate ? b.rate - a.rate : a.name.localeCompare(b.name, "ko")));
 
     html += `<div class="assign-course">
-      <h3 class="assign-course-h">${esc(label)} <span class="card-meta">${esc(course.label)} · 마감 도래 ${dueSoFar} / 전체 ${total}</span></h3>
+      <h3 class="assign-course-h">${esc(label)} <span class="card-meta">${esc(courseLabel)} · 마감 도래 ${dueSoFar} / 전체 ${total}</span></h3>
       <table class="qt-table"><thead><tr>
         <th class="caret-cell"></th><th>순위</th><th>성함</th><th>완료(마감도래)</th><th>완주율 (전체)</th></tr></thead><tbody>`;
     rows.forEach((r, i) => {
@@ -757,7 +813,7 @@ function renderAssignTable() {
         <td class="assign-done">${r.doneDue} / ${dueSoFar}</td>
         <td class="assign-rate" style="color:${color}; font-weight:700;">${r.rate.toFixed(0)}% <span class="rate-sub">(${r.totalRate.toFixed(0)}%)</span></td>
       </tr>
-      <tr class="qt-detail" hidden><td colspan="5">${assignChecklistHtml(r.name, course, today)}</td></tr>`;
+      <tr class="qt-detail" hidden><td colspan="5">${assignChecklistHtml(r.name, tasks, today)}</td></tr>`;
     });
     html += `</tbody></table></div>`;
   }
@@ -882,9 +938,11 @@ function setSidebar(open) {
 }
 
 function showView(key) {
+  const isSpecial = (k) => k === "__dash" || k === "__admin" || k === "__course";
   document.getElementById("dashboard-view").hidden = key !== "__dash";
-  document.getElementById("member-view").hidden = !(key !== "__dash" && key !== "__admin");
+  document.getElementById("member-view").hidden = isSpecial(key);
   document.getElementById("admin-view").hidden = key !== "__admin";
+  document.getElementById("course-view").hidden = key !== "__course";
 }
 
 function buildTabs() {
@@ -892,8 +950,11 @@ function buildTabs() {
 
   const tabs = [{ key: "__dash", label: "📊 대시보드" }]
     .concat(memberNames.map((n) => ({ key: n, label: n })));
-  // 멤버 관리는 관리자 전용 (반 계정은 자기 반 데이터 열람만)
-  if (isAdmin) tabs.push({ key: "__admin", label: "⚙️ 멤버 관리" });
+  // 멤버/커리큘럼 관리는 관리자 전용 (반 계정은 자기 반 데이터 열람만)
+  if (isAdmin) {
+    tabs.push({ key: "__admin", label: "⚙️ 멤버 관리" });
+    tabs.push({ key: "__course", label: "📚 커리큘럼 관리" });
+  }
 
   nav.innerHTML = tabs
     .map((t) =>
@@ -907,6 +968,7 @@ function buildTabs() {
       activeKey = key;
       showView(key);
       if (key === "__admin") renderAdmin();
+      else if (key === "__course") renderCourseAdmin();
       else if (key !== "__dash") renderMember(key);
       setSidebar(false); // 선택 후 닫기
     });
@@ -1042,6 +1104,118 @@ function renderAdmin() {
   });
 }
 
+/* ===================== 커리큘럼 관리 (관리자) ===================== */
+// RTDB /courses/<id> 가 없으면 코드 시드(또는 빈 골격)로 먼저 만들어, 편집이 그 위에 얹히게 함.
+async function ensureCourseSeeded(courseId) {
+  const snap = await get(ref(db, `courses/${courseId}`));
+  if (snap.exists()) return;
+  const code = COURSES.find((c) => c.id === courseId);
+  const seed = code ? courseSeed(code) : { label: (coursesById[courseId] && coursesById[courseId].label) || courseId, tasks: {} };
+  await set(ref(db, `courses/${courseId}`), seed);
+}
+
+function renderCourseAdmin() {
+  const wrap = document.getElementById("course-view");
+  const courseIds = Object.keys(coursesById)
+    .sort((a, b) => (coursesById[a].label || a).localeCompare(coursesById[b].label || b, "ko"));
+  if (!courseSel || !coursesById[courseSel]) courseSel = courseIds[0] || "";
+  const course = coursesById[courseSel];
+
+  const classesUsing = Object.values(classesById).filter((c) => c.courseId === courseSel);
+  if (dueTargetSel && !classesUsing.some((c) => c.id === dueTargetSel)) dueTargetSel = "";
+
+  const courseOpts = courseIds
+    .map((id) => `<option value="${esc(id)}"${id === courseSel ? " selected" : ""}>${esc(coursesById[id].label || id)}</option>`).join("");
+  const dueOpts = [`<option value=""${!dueTargetSel ? " selected" : ""}>기본 마감일(공통)</option>`]
+    .concat(classesUsing.map((c) => `<option value="${esc(c.id)}"${c.id === dueTargetSel ? " selected" : ""}>${esc(c.label)} (반별)</option>`)).join("");
+
+  const dueOf = (t) => dueTargetSel ? (((classesById[dueTargetSel] || {}).due || {})[t.id] || "") : (t.due || "");
+  const kindOpt = (sel) => ["생활간증", "독서", "기타"].map((k) => `<option${k === sel ? " selected" : ""}>${k}</option>`).join("");
+
+  const rows = course ? course.tasks.map((t) => `<tr>
+      <td><input class="c-order" data-id="${esc(t.id)}" type="number" value="${t.order}" style="width:52px" /></td>
+      <td><input class="c-group" data-id="${esc(t.id)}" value="${esc(t.group)}" placeholder="그룹" style="width:110px" /></td>
+      <td><select class="c-kind" data-id="${esc(t.id)}">${kindOpt(t.kind)}</select></td>
+      <td><input class="c-title" data-id="${esc(t.id)}" value="${esc(t.title)}" placeholder="과제명" style="min-width:200px" /></td>
+      <td><input class="c-kw" data-id="${esc(t.id)}" value="${esc((t.m || []).join(", "))}" placeholder="키워드,쉼표" style="width:150px" /></td>
+      <td><input class="c-due" data-id="${esc(t.id)}" type="date" value="${esc(dueOf(t))}" /></td>
+      <td><button class="btn btn-ghost c-del" data-id="${esc(t.id)}">삭제</button></td>
+    </tr>`).join("") : "";
+
+  wrap.innerHTML = `<section class="card">
+    <div class="card-head"><h2>📚 커리큘럼 관리</h2><span class="card-meta">${course ? course.tasks.length : 0}개 과제</span></div>
+    <div class="add-row">
+      <select id="course-sel" class="course-mgr-sel">${courseOpts}</select>
+      <span class="muted">| 새 커리큘럼</span>
+      <input id="new-course-id" placeholder="id(영문/숫자)" style="width:130px" />
+      <input id="new-course-label" placeholder="이름" />
+      <button id="add-course" class="btn btn-primary">추가</button>
+    </div>
+    <div class="add-row">
+      <span class="muted">마감일 편집 대상</span>
+      <select id="due-target" class="course-mgr-sel">${dueOpts}</select>
+      <span class="muted">과제명·종류·키워드·순서·그룹은 커리큘럼 공통 / 마감일만 선택 대상 기준</span>
+    </div>
+    <div id="course-msg" class="muted" style="margin:8px 0;"></div>
+    <div class="table-wrap"><table class="qt-table"><thead><tr>
+      <th>순서</th><th>그룹</th><th>종류</th><th>과제명</th><th>키워드(자동체크)</th><th>마감일</th><th></th>
+    </tr></thead><tbody>${rows || `<tr><td colspan="7" class="muted">과제가 없습니다. 아래 ‘과제 추가’로 시작하세요.</td></tr>`}</tbody></table></div>
+    <div class="add-row"><button id="add-task" class="btn btn-ghost">+ 과제 추가</button></div>
+    <p class="muted" style="margin-top:12px;">※ 같은 커리큘럼이라도 <b>마감일만 반별로 다르게</b> 지정할 수 있어요. 위 ‘마감일 편집 대상’에서 반을 고르면 그 반의 마감일을 입력합니다(비우면 커리큘럼 기본값 사용). 키워드는 수집된 [훈련나눔] 글 자동 체크에 쓰입니다.</p>
+  </section>`;
+
+  const msg = (t, ok) => { const el = document.getElementById("course-msg"); el.textContent = t; el.style.color = ok ? "#1a8a3c" : "#d93025"; };
+
+  document.getElementById("course-sel").addEventListener("change", (e) => { courseSel = e.target.value; dueTargetSel = ""; renderCourseAdmin(); });
+  document.getElementById("due-target").addEventListener("change", (e) => { dueTargetSel = e.target.value; renderCourseAdmin(); });
+
+  document.getElementById("add-course").addEventListener("click", async () => {
+    const id = (document.getElementById("new-course-id").value || "").trim();
+    const label = (document.getElementById("new-course-label").value || "").trim();
+    if (!/^[a-z0-9][a-z0-9_-]{1,30}$/.test(id)) { msg("커리큘럼 id는 영소문자/숫자로 시작, 2~31자여야 합니다.", false); return; }
+    if (coursesById[id]) { msg("이미 있는 커리큘럼 id 입니다.", false); return; }
+    try { await set(ref(db, `courses/${id}`), { label: label || id, tasks: {} }); courseSel = id; msg("커리큘럼 추가됨", true); await reloadMembersAndUi(); }
+    catch (e) { msg("추가 실패: " + (e.message || e), false); }
+  });
+
+  document.getElementById("add-task").addEventListener("click", async () => {
+    if (!courseSel) return;
+    try {
+      await ensureCourseSeeded(courseSel);
+      const maxOrder = coursesById[courseSel].tasks.reduce((mx, t) => Math.max(mx, t.order || 0), 0);
+      const id = `t${Date.now().toString(36)}`;
+      await set(ref(db, `courses/${courseSel}/tasks/${id}`), { title: "새 과제", kind: "기타", group: "", order: maxOrder + 1, due: "", m: [], x: [] });
+      msg("과제 추가됨", true); await reloadMembersAndUi();
+    } catch (e) { msg("추가 실패: " + (e.message || e), false); }
+  });
+
+  const writeField = async (id, patch) => {
+    try { await ensureCourseSeeded(courseSel); await update(ref(db, `courses/${courseSel}/tasks/${id}`), patch); await reloadMembersAndUi(); }
+    catch (e) { msg("저장 실패: " + (e.message || e), false); }
+  };
+  wrap.querySelectorAll(".c-title").forEach((el) => el.addEventListener("change", () => writeField(el.dataset.id, { title: el.value })));
+  wrap.querySelectorAll(".c-group").forEach((el) => el.addEventListener("change", () => writeField(el.dataset.id, { group: el.value })));
+  wrap.querySelectorAll(".c-kind").forEach((el) => el.addEventListener("change", () => writeField(el.dataset.id, { kind: el.value })));
+  wrap.querySelectorAll(".c-order").forEach((el) => el.addEventListener("change", () => writeField(el.dataset.id, { order: parseInt(el.value, 10) || 0 })));
+  wrap.querySelectorAll(".c-kw").forEach((el) => el.addEventListener("change", () => {
+    const arr = el.value.split(",").map((s) => s.replace(/\s+/g, "")).filter(Boolean);
+    writeField(el.dataset.id, { m: arr });
+  }));
+  wrap.querySelectorAll(".c-due").forEach((el) => el.addEventListener("change", async () => {
+    const id = el.dataset.id, val = el.value || "";
+    try {
+      if (dueTargetSel) { await set(ref(db, `classes/${dueTargetSel}/due/${id}`), val || null); }
+      else { await ensureCourseSeeded(courseSel); await set(ref(db, `courses/${courseSel}/tasks/${id}/due`), val); }
+      await reloadMembersAndUi();
+    } catch (e) { msg("마감일 저장 실패: " + (e.message || e), false); }
+  }));
+  wrap.querySelectorAll(".c-del").forEach((el) => el.addEventListener("click", async () => {
+    if (!confirm("이 과제를 삭제할까요? (기존 체크 기록은 남지만 화면에서 사라집니다)")) return;
+    try { await ensureCourseSeeded(courseSel); await remove(ref(db, `courses/${courseSel}/tasks/${el.dataset.id}`)); msg("삭제됨", true); await reloadMembersAndUi(); }
+    catch (e) { msg("삭제 실패: " + (e.message || e), false); }
+  }));
+}
+
 // /members 가 비어 있으면(폴백 표시 중) 현재 전체 명단을 먼저 통째로 저장.
 // 한 명만 토글했을 때 나머지가 사라지는 문제 방지.
 async function ensureSeeded() {
@@ -1062,19 +1236,20 @@ async function refreshMemberScope() {
 }
 
 async function reloadMembersAndUi() {
-  classesById = await loadClassesMap();
+  [classesById, coursesById] = await Promise.all([loadClassesMap(), loadCoursesMap()]);
   await refreshMemberScope();
   buildTabs();
   renderQtTable();
   renderAssignTable();
   if (activeKey === "__admin") renderAdmin();
+  else if (activeKey === "__course") renderCourseAdmin();
 }
 
 // 데이터를 다시 읽어 현재 화면을 갱신
 async function loadData() {
   document.getElementById("notice").hidden = true;
 
-  classesById = await loadClassesMap();
+  [classesById, coursesById] = await Promise.all([loadClassesMap(), loadCoursesMap()]);
   await refreshMemberScope();
 
   const { result, firstError } = await loadAllPosts(memberNames);
@@ -1109,6 +1284,7 @@ async function loadData() {
   renderAssignTable();
   renderFeed();
   if (activeKey === "__admin") renderAdmin();
+  else if (activeKey === "__course") renderCourseAdmin();
   else if (activeKey !== "__dash") renderMember(activeKey);
 }
 
