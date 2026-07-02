@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **jeja-pepero (제자 페페로)** is a church small-group QT (quiet-time / daily devotional) completion tracker. It has two independent halves that share one Firebase Realtime Database:
 
 1. **Web dashboard** — vanilla HTML/CSS/JS (ES modules, no build step, no framework), loads Firebase from the gstatic CDN, hosted on **GitHub Pages**.
-2. **Scheduled jobs** (`scripts/`) — Node scripts run by **GitHub Actions** that scrape a church board (`thelifechurch.kr`, `boardID=www56`), write posts to the RTDB, and send email digests/reports.
+2. **Scheduled jobs** (`scripts/`) — Node scripts run by **GitHub Actions** that scrape a church board (`thelifechurch.kr`, `boardID=www56`) and write posts to the RTDB. Results are viewed in the web dashboard (no email).
 
 There is no server. The two halves only communicate through Firebase RTDB.
 
@@ -28,9 +28,7 @@ npm test                       # runs node --test (unit tests)
 node --test test/qt-parse.test.js   # run a single test file
 
 # Job entry points (need env vars — see below):
-npm run collect:daily          # scrape new posts → RTDB (no email)
-npm run digest:daily           # email that day's collected posts
-npm run report:monthly         # monthly QT completion report email
+npm run collect:daily          # scrape new posts → RTDB
 npm run collect:history        # backfill this year's past posts (paginated)
 npm run backfill:content       # fill body text into existing posts
 npm run seed:members / set:admin / dedupe:posts / diagnose  # admin tools
@@ -41,9 +39,7 @@ CI (`.github/workflows/ci.yml`) runs on every PR and push to `main`: `node --che
 ## Environment / secrets
 
 Scripts read config from env vars (set as GitHub Actions secrets):
-- `FIREBASE_SERVICE_ACCOUNT` — service-account JSON, raw or base64 (base64 preferred; `lib/firebase.js` auto-repairs broken `private_key` newlines).
-- `MAIL_USERNAME` / `MAIL_PASSWORD` (Gmail app password) / `MAIL_TO` — for `lib/mailer.js`.
-- `SEND_EMAIL=1` — makes `collect-daily.js` email on new posts (default: collect silently; the daily digest handles email).
+- `FIREBASE_SERVICE_ACCOUNT` — service-account JSON, raw or base64 (base64 preferred; `lib/firebase.js` auto-repairs broken `private_key` newlines). This is the only secret the jobs need (no email).
 
 The web app's `js/firebase-config.js` `apiKey` is a public client value by design — access is enforced by Firebase Auth + RTDB security rules (rules are documented in `README.md`), not by hiding it.
 
@@ -61,8 +57,7 @@ The web app's `js/firebase-config.js` `apiKey` is a public client value by desig
 - `lib/scrape.js` — board scraping + QT-date parsing. Parses the list HTML by splitting on `class="mdDefaultW100 mdWebzinecon`, extracts title/link/date with regexes, filters out "공지" (notices) and posts before `START_DATE_STRING`. `fetchPostContent` pulls body text from detail pages.
 - `lib/firebase.js` — `firebase-admin` init (service account → RTDB).
 - `lib/members.js` — loads member roster from `/members`, falling back to `DEFAULT_MEMBERS`.
-- `lib/mailer.js` — Gmail SMTP via nodemailer.
-- `collect-daily.js` / `collect-history.js` / `digest-daily.js` / `report-monthly.js` / `backfill-content.js` — the jobs.
+- `collect-daily.js` / `collect-history.js` / `backfill-content.js` — the jobs (scrape → RTDB).
 
 ### RTDB data model
 - `posts/<name>/<pushKey>: { collectedAt, postDate, title, link, content }`

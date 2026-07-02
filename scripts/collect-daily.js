@@ -1,8 +1,7 @@
 // 일일 게시물 수집 (monitorDailyCollectionOnly 이식판).
-// 게시판을 스크래핑해 신규 글을 Firebase RTDB(/posts/<이름>)에 기록하고,
-// 신규 글이 있으면 알림 이메일을 보냅니다. 중복 방지 기준점은 /state/<이름>/lastTitle.
+// 게시판을 스크래핑해 신규 글을 Firebase RTDB(/posts/<이름>)에 기록합니다.
+// 결과는 웹 대시보드에서 확인합니다(이메일 발송 없음). 중복 방지 기준점은 /state/<이름>/lastTitle.
 import { initDb } from "./lib/firebase.js";
-import { sendMail } from "./lib/mailer.js";
 import { loadMembers } from "./lib/members.js";
 import {
   START_DATE_STRING,
@@ -26,7 +25,6 @@ async function main() {
   const checkedAt = nowKst();
   const members = (await loadMembers(db)).filter((m) => m.active);
 
-  let emailBody = "";
   let totalNew = 0;
 
   for (const member of members) {
@@ -48,7 +46,6 @@ async function main() {
         fresh.reverse(); // 과거 → 현재 순으로 기록
         totalNew += fresh.length;
 
-        emailBody += `<h3 style="color:#2c3e50; margin-bottom:5px;">[${name}] 새 글 ${fresh.length}건</h3><ul style="margin-top:0;">`;
         const postsRef = db.ref(`posts/${name}`);
         for (const post of fresh) {
           let content = "";
@@ -62,9 +59,7 @@ async function main() {
             link: post.link,
             content,
           });
-          emailBody += `<li>(${post.date}) <a href="${post.link}" style="text-decoration:none; color:#1a73e8;">${post.title}</a></li>`;
         }
-        emailBody += `</ul><hr style="border:0; border-top:1px solid #eee; margin:15px 0;">`;
       }
 
       // 기준점 최신화 (새 글 유무와 무관, 공지로 밀리는 것 방지)
@@ -79,20 +74,8 @@ async function main() {
     }
   }
 
-  // 이메일은 SEND_EMAIL=1 일 때만 발송. (기본: 수집만 하고, 일일 요약은 digest 가 담당)
   if (totalNew > 0) {
-    if (process.env.SEND_EMAIL === "1") {
-      await sendMail({
-        subject: `📅 신규 게시물 수집 알림 (${totalNew}건)`,
-        html:
-          `<div style="font-family:sans-serif; padding:10px;">` +
-          `<h2 style="color:#333;">📅 신규 게시물 수집 결과</h2>` +
-          `<p style="color:#666;">수집되어 기록된 게시물 목록입니다.</p><br>` +
-          emailBody +
-          `</div>`,
-      });
-    }
-    console.log(`총 ${totalNew}건 수집 완료${process.env.SEND_EMAIL === "1" ? " (이메일 발송)" : ""}`);
+    console.log(`총 ${totalNew}건 수집 완료`);
   } else {
     console.log("새로 수집된 게시물이 없습니다.");
   }

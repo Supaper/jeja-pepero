@@ -3,12 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "GitHub Actions 스케줄 작업 (일일 수집 / 월간 큐티 리포트)",
+  "description": "GitHub Actions 스케줄 작업 (일일 게시물 수집 → RTDB)",
   "scripts": {
     "collect:daily": "node collect-daily.js",
     "collect:history": "node collect-history.js",
-    "digest:daily": "node digest-daily.js",
-    "report:monthly": "node report-monthly.js",
     "backfill:content": "node backfill-content.js",
     "seed:members": "node seed-members.js",
     "set:admin": "node set-admin.js",
@@ -22,7 +20,6 @@
   },
   "dependencies": {
     "cheerio": "^1.2.0",
-    "firebase-admin": "^12.6.0",
-    "nodemailer": "^6.9.14"
+    "firebase-admin": "^12.6.0"
   }
 }
