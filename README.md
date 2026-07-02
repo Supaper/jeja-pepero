@@ -65,12 +65,14 @@ scripts/                          GitHub Actions 작업 (Node)
        "members":     { ".read": "auth != null", ".write": "auth.token.admin === true" },
        "posts":       { ".read": "auth != null", ".write": false },
        "assignments": { ".read": "auth != null", ".write": "auth != null" },
+       "qtManual":    { ".read": "auth != null", ".write": "auth.token.admin === true" },
        "state":       { ".read": false, ".write": false }
      }
    }
    ```
    (서버 작업은 서비스 계정으로 쓰므로 규칙과 무관하게 write 가능 ·
-   `assignments`=과제 체크 현황, 로그인 멤버가 직접 체크하도록 `auth != null` write)
+   `assignments`=과제 체크 현황, 로그인 멤버가 직접 체크하도록 `auth != null` write ·
+   `qtManual`=글 없이 직접 기록하는 큐티 완주일, 관리자만 write)
 
 ## 멤버 관리 (관리자)
 
@@ -109,6 +111,10 @@ scripts/                          GitHub Actions 작업 (Node)
 
 데이터 모델: `posts/<이름>/<key>: { collectedAt, postDate, title, link, content }`,
 `state/<이름>/lastTitle`(중복 방지 기준점). 큐티 집계는 **제목의 날짜** 기준(수집일 아님).
+
+> **수동 완주일**: 게시판에 글을 올리지 않는 멤버는 대시보드의 큐티 완주 현황에서 멤버 행을 펼쳐
+> **관리자가 완주일을 직접 추가/삭제**할 수 있습니다(`qtManual/<이름>/<YYYY-MM-DD>=true`).
+> 수동 완주일은 스크래핑으로 집계된 날짜와 합쳐지며(중복 제거), 웹 대시보드와 월간 이메일 리포트에 모두 반영됩니다.
 
 ### 과거 글 수집 (수동)
 **Actions → "Collect Past Posts"** — 게시판을 페이지네이션하며 올해치 과거 글을 수집합니다.

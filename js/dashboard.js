@@ -35,6 +35,8 @@ function catBadge(cat) {
 
 let postsByName = {}; // { name: [post, ...] }
 let assignStatus = {}; // { name: { assignmentId: true } }
+let qtManual = {}; // { name: { "YYYY-MM-DD": true } } — 글 없이 직접 기록한 큐티 완주일(관리자만 편집)
+let expandedQt = new Set(); // 현재 펼쳐진 큐티 행(이름) — 재렌더 후 펼침 유지
 let loaded = false;
 let activeKey = "__dash"; // 현재 보고 있는 탭 (__dash / __admin / 멤버 이름)
 let isAdmin = false;
@@ -213,7 +215,20 @@ function buildWeeks(year, month, daysInMonth) {
   return weeks;
 }
 
-// 한 멤버의 선택한 달 '큐티나눔' 글과 각 글의 큐티 날짜 추출.
+// 특정 멤버의 그달 수동 완주일(day 번호 Set). qtManual/<이름>/<YYYY-MM-DD>=true.
+function manualDaysFor(name, year, month, daysInMonth) {
+  const prefix = `${year}-${String(month).padStart(2, "0")}-`;
+  const days = new Set();
+  const obj = qtManual[name] || {};
+  for (const key of Object.keys(obj)) {
+    if (!obj[key] || !key.startsWith(prefix)) continue;
+    const d = parseInt(key.slice(prefix.length), 10);
+    if (d >= 1 && d <= daysInMonth) days.add(d);
+  }
+  return days;
+}
+
+// 한 멤버의 선택한 달 '큐티나눔' 글과 각 글의 큐티 날짜 추출 + 수동 완주일 병합.
 function memberQtData(name, year, month, daysInMonth) {
   const items = []; // { post, days: [d,...] }
   const uniqueDays = new Set();
@@ -225,7 +240,10 @@ function memberQtData(name, year, month, daysInMonth) {
     for (const d of days) uniqueDays.add(d);
     items.push({ post: { ...p, name, category: categorize(title) }, days });
   }
-  return { items, uniqueDays };
+  // 글 없이 직접 기록한 완주일도 집계에 포함(글 날짜와 겹치면 Set이 자동 중복 제거)
+  const manualDays = manualDaysFor(name, year, month, daysInMonth);
+  for (const d of manualDays) uniqueDays.add(d);
+  return { items, uniqueDays, manualDays };
 }
 
 // 주차별 클릭 시 보여줄 글 목록 저장소 ("이름|주차" → [post, ...])
@@ -243,8 +261,13 @@ function weeklyBreakdownHtml(name, year, month, daysInMonth, qtData) {
       const key = it.post.link || it.post.title;
       if (!seen.has(key)) { seen.add(key); posts.push(it.post); }
     }
+    // 수동 완주일도 주차 횟수에 포함(글이 없는 날이므로 별도 목록으로 표시)
+    const manualInWeek = [];
+    for (const d of qtData.manualDays || []) {
+      if (d >= w.start && d <= w.end) { daysInWeek.add(d); manualInWeek.push(d); }
+    }
     w.count = daysInWeek.size;
-    weekPostIndex[`${name}|${w.idx}`] = posts;
+    weekPostIndex[`${name}|${w.idx}`] = { posts, manualDays: manualInWeek.sort((a, b) => a - b), month };
   }
   return (
     `<div class="week-grid">` +
@@ -262,6 +285,40 @@ function weeklyBreakdownHtml(name, year, month, daysInMonth, qtData) {
       .join("") +
     `</div>`
   );
+}
+
+// 관리자용: 글을 올리지 않는 멤버의 큐티 완주일을 직접 추가/삭제하는 패널.
+function manualEditorHtml(name, year, month, daysInMonth) {
+  const mm = String(month).padStart(2, "0");
+  const min = `${year}-${mm}-01`;
+  const max = `${year}-${mm}-${String(daysInMonth).padStart(2, "0")}`;
+  const days = [...manualDaysFor(name, year, month, daysInMonth)].sort((a, b) => a - b);
+  const chips = days.length
+    ? days.map((d) =>
+        `<span class="manual-day">${month}월 ${d}일<button class="manual-del" data-name="${esc(name)}" data-date="${year}-${mm}-${String(d).padStart(2, "0")}" title="삭제" aria-label="삭제">✕</button></span>`
+      ).join("")
+    : `<span class="muted">직접 추가한 완주일이 없습니다.</span>`;
+  return `<div class="manual-qt">
+    <div class="manual-qt-h">✋ 수동 완주일 <span class="muted">(글을 올리지 않는 멤버의 완주일을 직접 추가)</span></div>
+    <div class="manual-qt-add">
+      <input type="date" class="manual-date" min="${min}" max="${max}" />
+      <button class="btn btn-primary manual-add" data-name="${esc(name)}">추가</button>
+    </div>
+    <div class="manual-qt-list">${chips}</div>
+  </div>`;
+}
+
+// 수동 완주일 저장/삭제 후 표를 다시 그림(펼침 상태는 expandedQt 로 유지).
+async function saveManualDay(name, date, want) {
+  try {
+    await set(ref(db, `qtManual/${name}/${date}`), want ? true : null);
+    if (!qtManual[name]) qtManual[name] = {};
+    if (want) qtManual[name][date] = true; else delete qtManual[name][date];
+    renderQtTable();
+  } catch (e) {
+    alert((want ? "추가" : "삭제") + " 실패: " + (e.message || e) +
+      "\n(관리자 권한 + RTDB qtManual write 규칙이 필요합니다)");
+  }
 }
 
 function renderQtTable() {
@@ -303,19 +360,26 @@ function renderQtTable() {
       <td style="color:${color}; font-weight:700;">${r.rate.toFixed(1)}%${sub}</td>
       <td class="bar-cell"><div class="bar"><div class="bar-fill" style="width:${Math.min(r.rate, 100)}%; background:${color};"></div></div></td>
     </tr>
-    <tr class="qt-detail" hidden><td colspan="6">${weeklyBreakdownHtml(r.name, year, month, daysInMonth, r.qtData)}</td></tr>`;
+    <tr class="qt-detail" hidden><td colspan="6">${weeklyBreakdownHtml(r.name, year, month, daysInMonth, r.qtData)}${isAdmin ? manualEditorHtml(r.name, year, month, daysInMonth) : ""}</td></tr>`;
   });
   html += `</tbody></table>`;
   const wrap = document.getElementById("qt-table-wrap");
   wrap.innerHTML = html;
 
   wrap.querySelectorAll(".qt-row").forEach((tr) => {
+    // 재렌더 후 이전에 펼쳐둔 행 복원
+    if (expandedQt.has(tr.dataset.name)) {
+      tr.classList.add("expanded");
+      const detail = tr.nextElementSibling;
+      if (detail && detail.classList.contains("qt-detail")) detail.hidden = false;
+    }
     tr.addEventListener("click", () => {
       const detail = tr.nextElementSibling;
       if (!detail || !detail.classList.contains("qt-detail")) return;
       const open = detail.hidden;
       detail.hidden = !open;
       tr.classList.toggle("expanded", open);
+      if (open) expandedQt.add(tr.dataset.name); else expandedQt.delete(tr.dataset.name);
     });
   });
 
@@ -326,21 +390,36 @@ function renderQtTable() {
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); }
     });
   });
+
+  // 관리자 수동 완주일 추가/삭제
+  wrap.querySelectorAll(".manual-add").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const input = btn.closest(".manual-qt-add").querySelector(".manual-date");
+      const date = input && input.value;
+      if (!date) { alert("추가할 날짜를 선택하세요."); return; }
+      saveManualDay(btn.dataset.name, date, true);
+    });
+  });
+  wrap.querySelectorAll(".manual-del").forEach((btn) => {
+    btn.addEventListener("click", () => saveManualDay(btn.dataset.name, btn.dataset.date, false));
+  });
 }
 
 /* ===================== 주차별 글 목록 모달 ===================== */
 function openWeekModal(name, weekIdx) {
-  const posts = weekPostIndex[`${name}|${weekIdx}`] || [];
+  const entry = weekPostIndex[`${name}|${weekIdx}`] || { posts: [], manualDays: [] };
+  const posts = entry.posts || [];
+  const manualDays = entry.manualDays || [];
   const [, month] = selectedYM.split("-").map(Number);
   document.getElementById("week-modal-title").textContent =
     `${name} · ${month}월 ${weekIdx}주차 큐티 글`;
-  document.getElementById("week-modal-meta").textContent = `${posts.length}건`;
+  document.getElementById("week-modal-meta").textContent =
+    `글 ${posts.length}건` + (manualDays.length ? ` · 수동 ${manualDays.length}일` : "");
 
   const body = document.getElementById("week-modal-body");
-  if (!posts.length) {
-    body.innerHTML = `<p class="muted" style="padding:8px 0;">표시할 글이 없습니다.</p>`;
-  } else {
-    body.innerHTML =
+  let inner = "";
+  if (posts.length) {
+    inner +=
       `<ul class="post-list">` +
       posts.map((p, i) => `<li>
           <span class="post-date">${esc(p.postDate || "")}</span>
@@ -348,8 +427,19 @@ function openWeekModal(name, weekIdx) {
           ${postLinkHtml("week", i, p.title)}
         </li>`).join("") +
       `</ul>`;
-    wirePostClicks(body, posts);
   }
+  if (manualDays.length) {
+    inner +=
+      `<ul class="post-list">` +
+      manualDays.map((d) => `<li>
+          <span class="post-date">${month}월 ${d}일</span>
+          ${catBadge("수동 기록")}
+        </li>`).join("") +
+      `</ul>`;
+  }
+  body.innerHTML = inner || `<p class="muted" style="padding:8px 0;">표시할 글이 없습니다.</p>`;
+  if (posts.length) wirePostClicks(body, posts);
+
   document.getElementById("week-modal").hidden = false;
   document.body.style.overflow = "hidden";
 }
@@ -840,6 +930,11 @@ async function loadData() {
     const aSnap = await get(ref(db, "assignments"));
     assignStatus = aSnap.exists() ? aSnap.val() : {};
   } catch (_) { assignStatus = {}; }
+
+  try {
+    const qmSnap = await get(ref(db, "qtManual"));
+    qtManual = qmSnap.exists() ? qmSnap.val() : {};
+  } catch (_) { qtManual = {}; }
 
   const total = Object.values(result).reduce((s, a) => s + a.length, 0);
   if (firstError && total === 0) {
