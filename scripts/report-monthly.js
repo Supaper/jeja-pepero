@@ -18,6 +18,8 @@ async function main() {
   const qtNames = (await loadMembers(db)).filter((m) => m.qt).map((m) => m.name);
   const reportData = [];
 
+  const manualPrefix = `${year}-${String(month).padStart(2, "0")}-`;
+
   for (const name of qtNames) {
     const snap = await db.ref(`posts/${name}`).get();
     const uniqueDays = new Set();
@@ -30,6 +32,17 @@ async function main() {
         for (const day of extractQtDays(title, year, month, daysInMonth)) {
           uniqueDays.add(day);
         }
+      }
+    }
+
+    // 웹 대시보드와 동일하게 수동 완주일(qtManual/<이름>/<YYYY-MM-DD>=true)도 반영
+    const manualSnap = await db.ref(`qtManual/${name}`).get();
+    if (manualSnap.exists()) {
+      const manual = manualSnap.val();
+      for (const key of Object.keys(manual)) {
+        if (!manual[key] || !key.startsWith(manualPrefix)) continue;
+        const day = parseInt(key.slice(manualPrefix.length), 10);
+        if (day >= 1 && day <= daysInMonth) uniqueDays.add(day);
       }
     }
 
@@ -57,7 +70,7 @@ async function main() {
     html += `<td style="padding:10px;">${item.count} / ${daysInMonth}</td>`;
     html += `<td style="color:${color}; font-weight:bold; padding:10px;">${item.rateText}%</td></tr>`;
   }
-  html += `</table><br><p style="font-size:13px; color:#555;">※ 제목의 날짜를 자동 분석하여 중복 없이 달성도 순으로 집계했습니다.</p>`;
+  html += `</table><br><p style="font-size:13px; color:#555;">※ 제목의 날짜를 자동 분석하고 수동 완주일을 더해 중복 없이 달성도 순으로 집계했습니다.</p>`;
 
   await sendMail({
     subject: `[월간리포트] ${year}년 ${month}월 큐티 통계 결과`,

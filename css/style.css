@@ -253,6 +253,48 @@ html, body {
 .week-count.clickable:hover,
 .week-count.clickable:focus-visible { opacity: .75; }
 
+/* ---- 수동 완주일(관리자) ---- */
+.manual-qt {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+.manual-qt-h { font-size: 13px; font-weight: 700; color: #374151; margin-bottom: 8px; }
+.manual-qt-h .muted { font-weight: 500; font-size: 12px; }
+.manual-qt-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.manual-date {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 9px;
+  font-size: 13px;
+  background: #fff;
+}
+.manual-date:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(26,115,232,.15); outline: none; }
+.manual-qt-add .btn { padding: 6px 14px; font-size: 13px; }
+.manual-qt-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.manual-day {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #eef2ff;
+  color: #3548b5;
+  border-radius: 999px;
+  padding: 3px 6px 3px 11px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.manual-del {
+  border: 0;
+  background: transparent;
+  color: #3548b5;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 999px;
+}
+.manual-del:hover { background: rgba(53,72,181,.15); }
+
 /* 주차 글 목록 모달은 글 본문 모달보다 아래에 스택 */
 #post-modal { z-index: 50; }
 .modal-list { padding: 8px 22px 18px; overflow-y: auto; }
