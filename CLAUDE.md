@@ -51,7 +51,7 @@ The web app's `js/firebase-config.js` `apiKey` is a public client value by desig
 
 ### Web dashboard (`js/`, loaded by `index.html`)
 - `app.js` — entry point / view gate: swaps login ↔ main view based on auth state.
-- `auth.js` — Google sign-in (Firebase Auth popup). RTDB `/users` is an **allowlist only**: authenticated emails not present in `/users` are signed straight back out. `admin: true` unlocks member management.
+- `auth.js` — **class + password login** (Firebase email/password). Each training class (반) is one Auth account; the login email is derived from the class id (`<classId>@class.jeja-pepero.app`), so users only pick a class from a dropdown (populated from the public `/classes` node) and enter the class password. Admin accounts carry a custom claim `admin: true` (see everything); a class account is scoped in-UI to its own class. One curriculum (`course`) can back multiple classes (e.g. `ministry` → 사역9기/10기/11기).
 - `firebase-config.js` — Firebase init (auth + db) from CDN.
 - `config.js` — shared browser constants + QT-date parsing + color rules.
 - `assignments.js` — `COURSES` definition (see below).
@@ -67,10 +67,10 @@ The web app's `js/firebase-config.js` `apiKey` is a public client value by desig
 ### RTDB data model
 - `posts/<name>/<pushKey>: { collectedAt, postDate, title, link, content }`
 - `state/<name>/lastTitle` — dedup checkpoint: collection walks newest→oldest and **breaks** when it hits `lastTitle`, then reverses the fresh batch to write oldest→newest.
-- `members/<name>: { name, qt, active, course }` — `qt` = counts toward QT aggregation, `active` = gets scraped, `course` = training-course id for assignment grading.
+- `members/<name>: { name, qt, active, class }` — `qt` = counts toward QT aggregation, `active` = gets scraped, `class` = training-class id (login unit; falls back to legacy `course` if `class` absent). Assignment grading uses the class's `courseId` curriculum.
+- `classes/<classId>: { label, courseId, active }` — training classes (login units); **publicly readable** so the login dropdown can list them before auth. Passwords live in Firebase Auth, not here. Managed by `scripts/manage-class.js` (Actions).
 - `assignments/<name>/<assignmentId>: true` — manual assignment checkboxes (any logged-in member may write).
-- `users/<key>: { email, name, admin }` — access allowlist.
-- `state/*` is server-only (rules deny client read/write).
+- `state/*` is server-only (rules deny client read/write). (The legacy `/users` allowlist node is no longer used.)
 
 ## Critical invariants — read before editing
 
@@ -80,7 +80,7 @@ The web app's `js/firebase-config.js` `apiKey` is a public client value by desig
 
 3. **QT completion is counted by the date *in the post title*, not the collection date.** Aggregation dedups days via a `Set` (distinct days ÷ days-in-month).
 
-4. **Assignments live entirely in `js/assignments.js`.** To add/change a training course or its weekly tasks, edit the `COURSES` array only. Each task carries keyword lists (`m` = match keywords, `x` = exclude) used to auto-match scraped `[훈련나눔]` post titles; tasks with no keywords (e.g. pledge forms) are manual checkboxes. Members are only graded against their own `course`.
+4. **Assignment curricula live entirely in `js/assignments.js`.** To add/change a curriculum (`COURSES`) or its weekly tasks, edit the `COURSES` array only. Each task carries keyword lists (`m` = match keywords, `x` = exclude) used to auto-match scraped `[훈련나눔]` post titles; tasks with no keywords (e.g. pledge forms) are manual checkboxes. A member is graded against their **class's** `courseId` curriculum (classes are runtime data in `/classes`, not code; multiple classes can share one curriculum).
 
 5. **KST (Asia/Seoul) is the fixed timezone** for date boundaries and cron scheduling. `daily-collect.yml` cron is written in UTC but targets KST 06–23h.
 

@@ -66,6 +66,26 @@ html, body {
   font-size: 14px;
 }
 
+/* ---- 로그인 폼(반 선택 + 비밀번호) ---- */
+.login-form { display: flex; flex-direction: column; gap: 8px; }
+.login-label { font-size: 13px; font-weight: 600; color: #374151; margin-top: 4px; }
+.login-select,
+.login-input {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 15px;
+  outline: none;
+  background: #fff;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.login-select:focus,
+.login-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.15);
+}
+.btn-login { margin-top: 12px; width: 100%; padding: 12px; font-size: 15px; }
+
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field-label { font-size: 13px; font-weight: 600; color: #374151; }
 

@@ -12,10 +12,29 @@ on:
           - seed-members      # 기존 명단을 /members 로 시드
           - set-admin         # admin_email 에 관리자 권한 부여
           - revoke-admin      # admin_email 의 관리자 권한 회수
+          - class-create      # 반 개설/수정(비번 설정) — class_* 입력 사용
+          - class-admin       # 관리자 계정 개설/비번설정(class_id=admin 권장) — ADMIN
+          - class-delete      # 반(또는 관리자) 계정 삭제
           - dedupe-posts      # 중복 글(num) 제거
           - diagnose          # 데이터 진단(월 분포/과거글/중복) 출력만
       admin_email:
         description: "set-admin/revoke-admin 시 대상 이메일"
+        required: false
+        default: ""
+      class_id:
+        description: "반 id (영소문자/숫자/-/_): 예 disciple11, ministry9 · 관리자는 admin"
+        required: false
+        default: ""
+      class_label:
+        description: "반 이름(화면 표시): 예 '제자 11기'"
+        required: false
+        default: ""
+      class_course:
+        description: "과제 채점 커리큘럼 id (assignments.js 의 COURSES id, 없으면 비움)"
+        required: false
+        default: ""
+      class_password:
+        description: "반/관리자 비밀번호 (6자 이상). 생성 필수, 수정 시 주면 변경"
         required: false
         default: ""
       member:
@@ -56,10 +75,17 @@ jobs:
           DAY: ${{ inputs.day }}
           FORCE: ${{ inputs.force && '1' || '' }}
           REVOKE: ${{ inputs.action == 'revoke-admin' && '1' || '' }}
+          CLASS_ID: ${{ inputs.class_id }}
+          CLASS_LABEL: ${{ inputs.class_label }}
+          CLASS_COURSE: ${{ inputs.class_course }}
+          CLASS_PASSWORD: ${{ inputs.class_password }}
+          ADMIN: ${{ inputs.action == 'class-admin' && '1' || '' }}
+          DELETE: ${{ inputs.action == 'class-delete' && '1' || '' }}
         run: |
           case "${{ inputs.action }}" in
             seed-members) npm run seed:members ;;
             set-admin|revoke-admin) npm run set:admin ;;
+            class-create|class-admin|class-delete) npm run manage:class ;;
             dedupe-posts) npm run dedupe:posts ;;
             diagnose) npm run diagnose ;;
             *) echo "알 수 없는 작업"; exit 1 ;;

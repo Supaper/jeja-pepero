@@ -12,6 +12,7 @@
     "backfill:content": "node backfill-content.js",
     "seed:members": "node seed-members.js",
     "set:admin": "node set-admin.js",
+    "manage:class": "node manage-class.js",
     "dedupe:posts": "node dedupe-posts.js",
     "diagnose": "node diagnose.js",
     "test": "node --test"

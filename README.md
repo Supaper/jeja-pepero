@@ -12,7 +12,7 @@
 ```
 index.html / css/style.css        로그인 + 대시보드 화면, 스타일
 js/firebase-config.js             Firebase 초기화 (auth, db)
-js/auth.js                        Google 로그인 + /users 허용 명단 검증
+js/auth.js                        훈련 반 선택 + 비밀번호 로그인(Firebase 이메일/비밀번호)
 js/config.js                      대시보드 공용 상수/큐티 날짜 파싱·색상
 js/assignments.js                 제자반 주별 과제 정의(생활간증·독서·기타)
 js/dashboard.js                   대시보드/멤버 탭/멤버 관리/과제 현황 렌더링
@@ -37,64 +37,84 @@ scripts/                          GitHub Actions 작업 (Node)
   collect-history.yml / backfill-content.yml / admin-tools.yml   수동 도구
 ```
 
-## 로그인 (Google 계정)
+## 로그인 (훈련 반 + 비밀번호)
 
-인증은 **Google 로그인(Firebase Authentication)** 이 담당합니다. 비밀번호는 Google이
-관리하고, RTDB `/users` 노드는 **접근 허용 명단(allowlist)** 으로만 사용합니다.
+인증은 **훈련 반(class) 선택 + 반 비밀번호**(Firebase 이메일/비밀번호)로 합니다. 각 반은
+Firebase Auth 계정 하나에 대응하며, 로그인 이메일은 반 id 로부터 자동 생성됩니다
+(`<반id>@class.jeja-pepero.app` — 사용자는 이메일을 볼 필요 없이 **반 + 비밀번호**만 입력).
 
-`/users` 구조:
+- **반 = 로그인 단위.** 한 커리큘럼(코스)이 여러 반을 가질 수 있습니다
+  (예: 사역훈련 → 사역9기/10기/11기).
+- 반 목록은 공개 노드 `/classes` 에서 읽어 드롭다운에 채웁니다(**비밀번호는 저장하지 않음** —
+  Firebase Auth 가 보관).
+- **관리자**는 커스텀 클레임 `admin:true` 를 가진 계정으로, 드롭다운의 "⚙️ 관리자" 로 로그인하며
+  **모든 반**을 열람·관리합니다. 일반 반 계정은 **자기 반 데이터만** 화면에 표시됩니다(화면 분리).
+
+`/classes` 구조 (공개 읽기):
 ```jsonc
 {
-  "users": {
-    "admin001": { "admin": true, "email": "admin@example.com", "name": "관리자" }
+  "classes": {
+    "disciple11": { "label": "제자 11기", "courseId": "disciple11", "active": true },
+    "ministry9":  { "label": "사역 9기",  "courseId": "ministry",   "active": true }
   }
 }
 ```
 
-흐름: ① "Google 계정으로 로그인" → ② 인증된 이메일이 `/users`에 있으면 진입,
-없으면 자동 로그아웃 + "접근 권한 없음" 안내.
-
 ### Firebase 콘솔 설정 (1회)
-1. **Authentication → Sign-in method → Google 공급자 사용 설정**
+1. **Authentication → Sign-in method → 이메일/비밀번호 공급자 사용 설정**
 2. **Authentication → Settings → 승인된 도메인** 에 배포 도메인 추가 (예: `<id>.github.io`)
 3. **Realtime Database 보안 규칙**:
    ```json
    {
      "rules": {
-       "users":       { ".read": "auth != null", ".write": "auth.token.admin === true", ".indexOn": ["email"] },
-       "members":     { ".read": "auth != null", ".write": "auth.token.admin === true" },
+       "classes":     { ".read": true, ".write": "auth.token.admin === true" },
+       "members":     { ".read": "auth != null", ".write": "auth != null" },
        "posts":       { ".read": "auth != null", ".write": false },
        "assignments": { ".read": "auth != null", ".write": "auth != null" },
-       "qtManual":    { ".read": "auth != null", ".write": "auth.token.admin === true" },
+       "qtManual":    { ".read": "auth != null", ".write": "auth != null" },
        "state":       { ".read": false, ".write": false }
      }
    }
    ```
-   (서버 작업은 서비스 계정으로 쓰므로 규칙과 무관하게 write 가능 ·
-   `assignments`=과제 체크 현황, 로그인 멤버가 직접 체크하도록 `auth != null` write ·
-   `qtManual`=글 없이 직접 기록하는 큐티 완주일, 관리자만 write)
+   - `classes` = 로그인 드롭다운용 반 목록 → **공개 읽기**(라벨만, 비밀번호 없음), 쓰기는 관리자만.
+   - `members`/`qtManual` 쓰기는 **로그인한 반이 자기 반을 관리**하도록 `auth != null`
+     (화면에서 자기 반만 노출하는 "화면 분리" 방식이라, 인증된 반끼리는 DB 레벨에서 완전 격리되진 않음).
+   - `posts` 는 서버(수집 스크립트)가 서비스 계정으로만 기록.
+   - 예전 `/users` 허용명단은 더 이상 사용하지 않습니다(있어도 무시됨 — 삭제해도 무방).
 
-## 멤버 관리 (관리자)
+## 반·멤버 관리
 
-멤버 명단은 RTDB `/members/<이름>: { name, qt, active, course }` 에 저장되고 **관리자가 웹에서**
-관리합니다. 비어 있으면 코드 기본값으로 동작.
-- `qt` = 큐티 완주 현황 집계 대상
-- `active` = 글 자동 수집 대상
-- `course` = 과제 현황에서 채점할 **훈련과정 id**(예: `disciple11`). 다른 기수/과정은 ‘해당없음’ 또는 다른 과정 선택.
+### 반 개설/수정/삭제 (관리자, Actions)
+반 계정과 비밀번호는 **Actions → Admin Tools** 에서 관리합니다(웹 로그인 없이 관리자 손으로 1회씩).
 
-- **관리자 권한 부여(1회)**: 대상 계정으로 한 번 로그인 → **Actions → Admin Tools →
-  `set-admin`**(이메일 입력) → 재로그인하면 사이드바에 "⚙️ 멤버 관리" 표시.
-- **명단 시드(선택)**: Admin Tools → `seed-members` (기본 명단을 `/members`에 기록).
+- **관리자 계정 개설(최초 1회)**: action `class-admin`, `class_id=admin`, `class_password=<관리자 비번>`
+  → 이후 웹에서 "⚙️ 관리자" + 이 비번으로 로그인.
+- **반 개설**: action `class-create`, `class_id`(예 `ministry9`), `class_label`(예 `사역 9기`),
+  `class_course`(과제 커리큘럼 id, 없으면 비움), `class_password`(6자 이상).
+- **비밀번호 변경**: `class-create` 로 같은 `class_id` + 새 `class_password`.
+- **반 폐쇄**: action `class-delete`, `class_id`.
+
+### 멤버 관리 (웹)
+멤버 명단은 RTDB `/members/<이름>: { name, qt, active, class }` 에 저장됩니다.
+- `qt` = 큐티 완주 현황 집계 대상 · `active` = 글 자동 수집 대상
+- `class` = 소속 **반 id**(로그인 단위). 과제 채점은 그 반의 `courseId`(커리큘럼)로 이뤄집니다.
+- **관리자**는 사이드바 "⚙️ 멤버 관리" 에서 전체 멤버의 반을 지정, **일반 반**은 "⚙️ 우리 반 관리" 에서
+  자기 반 멤버만 추가/관리합니다.
 - 멤버 추가 후 그 사람의 **과거 글**까지 채우려면 → 아래 "과거 글 수집".
+
+> 마이그레이션: 기존 멤버의 `course` 값은 `class` 가 없을 때 반 id 로 간주됩니다. 반 id 를 예전
+> course id 와 같게(예: `disciple11`) 개설하면 자동으로 이어지고, 다르면 멤버 관리에서 반을 다시 지정하세요.
 
 ## 과제 현황 (훈련과정별 주별 과제)
 
-대시보드의 **📝 과제 완주 현황** 카드에서 멤버별 과제 완료 여부를 **과정(course)별로** 보여줍니다.
-훈련과정과 과제 목록(개강 전 / 1학기 / 방학 / 2학기·종강의 생활간증·독서·기타)은
-[`js/assignments.js`](./js/assignments.js) 의 `COURSES` 에 정의되어 있어 **이 파일만 고치면** 됩니다.
+대시보드의 **📝 과제 완주 현황** 카드에서 멤버별 과제 완료 여부를 **반(class)별로** 보여줍니다.
+각 반은 자신의 **커리큘럼(course)** 으로 채점되며, 커리큘럼과 과제 목록(개강 전 / 1학기 / 방학 /
+2학기·종강의 생활간증·독서·기타)은 [`js/assignments.js`](./js/assignments.js) 의 `COURSES` 에
+정의되어 있어 **이 파일만 고치면** 됩니다.
 
-- **새 과정 추가**: `COURSES` 배열에 `{ id, label, groups }` 한 줄 추가 → 멤버 관리에서 해당 멤버의 ‘훈련과정’을 그 과정으로 지정.
-- 멤버는 자기 과정의 과제에 대해서만 자동 매칭/채점됩니다(다른 기수가 제자반 과제로 잘못 잡히지 않음).
+- **새 커리큘럼 추가**: `COURSES` 배열에 `{ id, label, groups }` 한 줄 추가 → 반 개설 시 `class_course` 로 그 커리큘럼 id 지정.
+- 한 커리큘럼을 여러 반이 공유할 수 있습니다(예: `ministry` 커리큘럼 → 사역9기/10기/11기 반).
+- 멤버는 자기 반의 커리큘럼 과제에 대해서만 자동 매칭/채점됩니다.
 
 - **자동 체크**: 수집된 **[훈련나눔]** 글 제목을 과제별 키워드로 매칭해 자동으로 완료 처리
   (`✓ 자동 ↗` 표시, 클릭하면 해당 글 본문). 키워드/마감일은 `js/assignments.js` 에서 조정.
