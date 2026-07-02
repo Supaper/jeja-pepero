@@ -428,24 +428,38 @@ function renderQtTable() {
     isCurrentMonth ? `달성률 = 월 전체 (괄호: ${month}/${dayToday}까지)` : `달성률 = 월 전체`;
 
   weekPostIndex = {};
-  const rows = qtNames.map((name) => {
+  const rows = memberList.filter((m) => m.qt).map((m) => {
+    const name = m.name;
     const qtData = memberQtData(name, year, month, daysInMonth);
     const count = qtData.uniqueDays.size;
     const rate = (count / daysInMonth) * 100;
     const todayRate = dayToday > 0 ? Math.min((count / dayToday) * 100, 100) : 0;
-    return { name, count, rate, todayRate, qtData };
+    return { name, classId: memberClassId(m), count, rate, todayRate, qtData };
   });
-  rows.sort((a, b) => (b.rate !== a.rate ? b.rate - a.rate : a.name.localeCompare(b.name, "ko")));
 
-  let html = `<table class="qt-table"><thead><tr>
-      <th class="caret-cell"></th><th>순위</th><th>성함</th><th>큐티 횟수</th><th>달성률${isCurrentMonth ? " (오늘까지)" : ""}</th><th></th></tr></thead><tbody>`;
-  rows.forEach((r, i) => {
+  // 반(class)별 그룹핑 — 미배정은 '미등록'으로 묶어 맨 뒤에
+  const groups = new Map();
+  for (const r of rows) {
+    const key = r.classId || "";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  }
+  const orderedKeys = [...groups.keys()].sort((a, b) => {
+    if (a === b) return 0;
+    if (a === "") return 1; // 미등록 맨 뒤
+    if (b === "") return -1;
+    return classLabelOf(a).localeCompare(classLabelOf(b), "ko");
+  });
+
+  const headRow = `<thead><tr>
+      <th class="caret-cell"></th><th>순위</th><th>성함</th><th>큐티 횟수</th><th>달성률${isCurrentMonth ? " (오늘까지)" : ""}</th><th></th></tr></thead>`;
+  const rowHtml = (r, i) => {
     const color = rateColor(r.rate);
     const todayColor = rateColor(r.todayRate);
     const sub = isCurrentMonth
       ? ` <span class="rate-sub" style="color:${todayColor};">(${r.todayRate.toFixed(1)}%)</span>`
       : "";
-    html += `<tr class="qt-row" data-name="${esc(r.name)}" title="클릭하면 주차별 큐티 횟수">
+    return `<tr class="qt-row" data-name="${esc(r.name)}" title="클릭하면 주차별 큐티 횟수">
       <td class="caret-cell"><span class="caret">▸</span></td>
       <td class="rank">${i + 1}</td>
       <td class="name">${esc(r.name)}</td>
@@ -454,8 +468,23 @@ function renderQtTable() {
       <td class="bar-cell"><div class="bar"><div class="bar-fill" style="width:${Math.min(r.rate, 100)}%; background:${color};"></div></div></td>
     </tr>
     <tr class="qt-detail" hidden><td colspan="6">${weeklyBreakdownHtml(r.name, year, month, daysInMonth, r.qtData)}${isAdmin ? manualEditorHtml(r.name, year, month, daysInMonth) : ""}</td></tr>`;
-  });
-  html += `</tbody></table>`;
+  };
+
+  let html = "";
+  if (!rows.length) {
+    html = `<p class="muted">큐티 집계 대상 멤버가 없습니다.</p>`;
+  } else {
+    for (const key of orderedKeys) {
+      const grp = groups.get(key);
+      grp.sort((a, b) => (b.rate !== a.rate ? b.rate - a.rate : a.name.localeCompare(b.name, "ko")));
+      const label = key ? classLabelOf(key) : "미등록";
+      html += `<div class="assign-course">
+        <h3 class="assign-course-h">${esc(label)} <span class="card-meta">${grp.length}명</span></h3>
+        <table class="qt-table">${headRow}<tbody>` +
+        grp.map((r, i) => rowHtml(r, i)).join("") +
+        `</tbody></table></div>`;
+    }
+  }
   const wrap = document.getElementById("qt-table-wrap");
   wrap.innerHTML = html;
 
