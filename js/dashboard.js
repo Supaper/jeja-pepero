@@ -618,6 +618,13 @@ function closeWeekModal() {
 
 /* ===================== 과제 완주 현황 ===================== */
 let autoAssign = {}; // { name: { assignmentId: matchedPost } } — 수집 글로 자동 매칭된 과제
+let expandedAssign = new Set(); // 펼쳐진 과제 행(이름) — 재렌더 후 유지
+let assignModalTarget = null; // 과제 모달 대상 { name, taskId }
+
+// 수동 과제 체크 값의 내용. 값은 true(내용 없음) 또는 { content, createdAt }.
+function assignContent(v) {
+  return (v && typeof v === "object" && typeof v.content === "string") ? v.content : "";
+}
 
 function todayISO() {
   const n = new Date();
@@ -692,12 +699,15 @@ function assignChecklistHtml(name, tasks, today) {
           <span class="assign-due">~${dueLabel}</span>
         </div>`;
       }
-      return `<label class="assign-item${overdue ? " overdue" : ""}">
-        <input type="checkbox" class="assign-check" data-name="${esc(name)}" data-id="${esc(it.id)}" data-due="${it.due}" ${manual ? "checked" : ""} />
+      // 수동 과제: 클릭하면 내용 입력/확인 모달 (체크 상태면 ✓, 내용 있으면 📄)
+      const hasContent = manual && !!assignContent(st[it.id]);
+      return `<div class="assign-item manual${overdue ? " overdue" : ""}${manual ? " done" : ""}" data-name="${esc(name)}" data-id="${esc(it.id)}" title="클릭하면 내용 입력/확인">
+        <span class="assign-box${manual ? " done" : ""}">${manual ? "✓" : ""}</span>
         ${assignKindBadge(it.kind)}
         <span class="assign-text">${esc(it.title)}</span>
+        ${hasContent ? `<span class="assign-auto">내용 📄</span>` : ""}
         <span class="assign-due">~${dueLabel}</span>
-      </label>`;
+      </div>`;
     }).join("");
     return `<div class="assign-group"><div class="assign-group-h">${esc(g || "과제")}</div>${items}</div>`;
   }).join("");
@@ -737,18 +747,66 @@ function updateAssignRow(name, today) {
   }
 }
 
-async function onToggleAssign(cb, today) {
-  const name = cb.dataset.name, id = cb.dataset.id, want = cb.checked;
+// 수동 과제 클릭 → 내용 입력/확인 모달 열기.
+function openAssignModal(name, taskId) {
+  const m = memberList.find((x) => x.name === name);
+  if (!m) return;
+  const t = effectiveTasks(memberCourseId(m), memberClassId(m)).find((x) => x.id === taskId);
+  if (!t) return;
+  const v = (assignStatus[name] || {})[taskId];
+  const done = !!v;
+  assignModalTarget = { name, taskId };
+
+  const kindEl = document.getElementById("assign-modal-kind");
+  const [bg, fg] = assignKindColor(t.kind);
+  kindEl.textContent = t.kind; kindEl.style.background = bg; kindEl.style.color = fg;
+  document.getElementById("assign-modal-title").textContent = t.title || "";
+  document.getElementById("assign-modal-meta").textContent =
+    [name, t.due ? `~${t.due.slice(5).replace("-", "/")}` : "마감일 미정"].join(" · ");
+  document.getElementById("assign-modal-content").value = assignContent(v);
+  document.getElementById("assign-modal-save").textContent = done ? "내용 저장" : "완료 체크";
+  document.getElementById("assign-modal-uncheck").hidden = !done;
+
+  document.getElementById("assign-modal").hidden = false;
+  document.body.style.overflow = "hidden";
+}
+
+function closeAssignModal() {
+  document.getElementById("assign-modal").hidden = true;
+  assignModalTarget = null;
+  if (document.getElementById("post-modal").hidden && document.getElementById("week-modal").hidden) {
+    document.body.style.overflow = "";
+  }
+}
+
+// 완료 체크(내용 있으면 { content, createdAt }, 없으면 true) 저장.
+async function saveAssign() {
+  if (!assignModalTarget) return;
+  const { name, taskId } = assignModalTarget;
+  const content = (document.getElementById("assign-modal-content").value || "").trim();
+  const value = content ? { content, createdAt: new Date().toISOString() } : true;
   try {
-    await set(ref(db, `assignments/${name}/${id}`), want ? true : null);
+    await set(ref(db, `assignments/${name}/${taskId}`), value);
     if (!assignStatus[name]) assignStatus[name] = {};
-    if (want) assignStatus[name][id] = true; else delete assignStatus[name][id];
-    updateAssignRow(name, today);
-    const label = cb.closest(".assign-item");
-    if (label) label.classList.toggle("overdue", !want && cb.dataset.due < today);
+    assignStatus[name][taskId] = value;
+    closeAssignModal();
+    renderAssignTable();
   } catch (e) {
-    cb.checked = !want;
     alert("저장 실패: " + (e.message || e) + "\n(RTDB 규칙에 assignments write 권한이 필요합니다)");
+  }
+}
+
+// 체크 해제(내용까지 삭제).
+async function uncheckAssign() {
+  if (!assignModalTarget) return;
+  const { name, taskId } = assignModalTarget;
+  try {
+    await set(ref(db, `assignments/${name}/${taskId}`), null);
+    if (assignStatus[name]) delete assignStatus[name][taskId];
+    closeAssignModal();
+    renderAssignTable();
+  } catch (e) {
+    alert("해제 실패: " + (e.message || e));
   }
 }
 
@@ -820,22 +878,28 @@ function renderAssignTable() {
   wrap.innerHTML = html;
 
   wrap.querySelectorAll(".assign-row").forEach((tr) => {
+    if (expandedAssign.has(tr.dataset.name)) {
+      tr.classList.add("expanded");
+      const detail = tr.nextElementSibling;
+      if (detail && detail.classList.contains("qt-detail")) detail.hidden = false;
+    }
     tr.addEventListener("click", () => {
       const detail = tr.nextElementSibling;
       if (!detail || !detail.classList.contains("qt-detail")) return;
       const open = detail.hidden;
       detail.hidden = !open;
       tr.classList.toggle("expanded", open);
+      if (open) expandedAssign.add(tr.dataset.name); else expandedAssign.delete(tr.dataset.name);
     });
-  });
-  wrap.querySelectorAll(".assign-check").forEach((cb) => {
-    cb.addEventListener("change", () => onToggleAssign(cb, today));
   });
   wrap.querySelectorAll(".assign-item.auto").forEach((el) => {
     el.addEventListener("click", () => {
       const p = (autoAssign[el.dataset.name] || {})[el.dataset.id];
       if (p) openPostModal(p);
     });
+  });
+  wrap.querySelectorAll(".assign-item.manual").forEach((el) => {
+    el.addEventListener("click", () => openAssignModal(el.dataset.name, el.dataset.id));
   });
 }
 
@@ -990,9 +1054,16 @@ function wireChrome() {
   document.getElementById("week-modal").addEventListener("click", (e) => {
     if (e.target.id === "week-modal") closeWeekModal();
   });
+  document.getElementById("assign-modal-close").addEventListener("click", closeAssignModal);
+  document.getElementById("assign-modal").addEventListener("click", (e) => {
+    if (e.target.id === "assign-modal") closeAssignModal();
+  });
+  document.getElementById("assign-modal-save").addEventListener("click", saveAssign);
+  document.getElementById("assign-modal-uncheck").addEventListener("click", uncheckAssign);
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     // 위에 떠 있는 모달부터 닫기
+    if (!document.getElementById("assign-modal").hidden) { closeAssignModal(); return; }
     if (!document.getElementById("post-modal").hidden) { closeModal(); return; }
     if (!document.getElementById("week-modal").hidden) { closeWeekModal(); return; }
     setSidebar(false);
