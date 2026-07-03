@@ -82,6 +82,12 @@ The web app's `js/firebase-config.js` `apiKey` is a public client value by desig
 
 6. **Dedup is title-based** (`state/<name>/lastTitle`) for daily collection but **post-number-based** (`postNum`, `num=` query param) for history/dedupe tools, which is more robust. Preserve the `num`-based idempotency in those tools.
 
+7. **The `jeja-pepero` identifiers are NOT the GitHub repo name — do not rename them to match the repo (`thelife-training`) or the UI brand ("The Life").** The GitHub repo was renamed; these identifiers point at external services that were *not* renamed, and changing them breaks production:
+   - **Firebase project** — `js/firebase-config.js` and `scripts/lib/firebase.js` reference the live Firebase project `jeja-pepero` (`authDomain`, `databaseURL`, `projectId`, `storageBucket`). The RTDB and all data live under this project id. These must match the actual Firebase project, which is independent of the repo name.
+   - **Login email domain** — `EMAIL_DOMAIN = "class.jeja-pepero.app"` in `js/auth.js` and `scripts/manage-class.js` is the synthetic domain that class login emails are derived from (`<classId>@class.jeja-pepero.app`). Existing Firebase Auth accounts were created with these emails, so changing the domain locks every class (and admin) out. Keep the two files identical (see also invariant 1's manual-sync rule).
+
+   Only rename these if the Firebase project or Auth accounts are *actually* migrated first. Cosmetic/doc mentions of the old name (README title, `package.json` `name`, `PLAN.md`) are safe to update; the four service identifiers above are not.
+
 ## Deployment
 
 GitHub Pages: Settings → Pages → deploy from `main` / root. Pages only serves the static site; collection/reporting are entirely GitHub Actions (`.github/workflows/`), independent of deployment.
